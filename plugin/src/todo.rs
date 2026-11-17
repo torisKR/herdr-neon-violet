@@ -127,26 +127,31 @@ fn stdin_json() -> Value {
 /// Agent hooks. They must never fail the agent, so every path ends quietly.
 fn hook(kind: &str, args: &[String]) -> Result<(), String> {
     let mut items = load();
+    // The session an event belongs to; Codex and Claude Code both send session_id and cwd.
+    let session_of = |v: &Value| -> String {
+        ["session_id", "thread_id", "conversation_id", "cwd"].iter().map(|k| str_of(v, k)).find(|s| !s.is_empty()).unwrap_or("").to_string()
+    };
     match kind {
-        // Claude Code UserPromptSubmit: the instruction becomes an open item.
-        "claude-prompt" => {
+        // UserPromptSubmit (Claude Code, Codex): the instruction becomes an open item.
+        "claude-prompt" | "codex-prompt" => {
+            let agent = kind.split('-').next().unwrap_or("claude");
             let v = stdin_json();
-            let prompt = str_of(&v, "prompt");
-            let text = first_line(prompt, 160);
+            let text = first_line(str_of(&v, "prompt"), 160);
             if text.is_empty() || text.starts_with('/') {
                 return Ok(());
             }
-            add(&mut items, &text, "claude", str_of(&v, "session_id"), str_of(&v, "cwd"), false);
+            add(&mut items, &text, agent, &session_of(&v), str_of(&v, "cwd"), false);
         }
-        // Claude Code Stop: the turn ended, so its open items are checked.
-        "claude-stop" => {
+        // Stop (Claude Code, Codex): the turn ended, so that session's open items are checked.
+        "claude-stop" | "codex-stop" => {
+            let agent = kind.split('-').next().unwrap_or("claude");
             let v = stdin_json();
-            let session = str_of(&v, "session_id").to_string();
+            let session = session_of(&v);
             if session.is_empty() {
                 return Ok(());
             }
             for item in items.iter_mut() {
-                if str_of(item, "source") == "claude" && str_of(item, "key") == session && item["done"] != json!(true) {
+                if str_of(item, "source") == agent && str_of(item, "key") == session && item["done"] != json!(true) {
                     set_done(item, true);
                 }
             }
@@ -176,6 +181,48 @@ fn hook(kind: &str, args: &[String]) -> Result<(), String> {
         _ => return Err(format!("unknown hook '{kind}'")),
     }
     save(&items)
+}
+
+/// Adds (or removes) the to-do hooks in Claude Code's settings.json and Codex's hooks.json.
+/// Both files use the same shape: { "hooks": { "<Event>": [ { "hooks": [ { "type": "command", "command": … } ] } ] } }.
+/// Existing hooks are kept; a backup is written next to each file that changes.
+fn install_hooks(remove: bool) -> Result<(), String> {
+    let nv = std::env::current_exe().map_err(|e| e.to_string())?.to_string_lossy().replace('\\', "/");
+    let targets = [("claude", home().join(".claude").join("settings.json")), ("codex", home().join(".codex").join("hooks.json"))];
+    for (agent, path) in targets {
+        let Ok(text) = fs::read_to_string(&path) else {
+            println!("{agent}: {} not found, skipped", path.display());
+            continue;
+        };
+        let mut root: Value = serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+        if !root.is_object() {
+            return Err(format!("{} is not a JSON object", path.display()));
+        }
+        if !root.get("hooks").map(|h| h.is_object()).unwrap_or(false) {
+            root["hooks"] = json!({});
+        }
+        let mut changed = false;
+        for (event, name) in [("UserPromptSubmit", "prompt"), ("Stop", "stop")] {
+            let marker = format!("todo hook {agent}-{name}");
+            if !root["hooks"].get(event).map(|e| e.is_array()).unwrap_or(false) {
+                root["hooks"][event] = json!([]);
+            }
+            let list = root["hooks"][event].as_array_mut().unwrap();
+            let before = list.len();
+            list.retain(|entry| !entry.to_string().contains(&marker));
+            changed |= list.len() != before;
+            if !remove {
+                list.push(json!({ "hooks": [ { "type": "command", "command": format!("\"{nv}\" {marker}"), "timeout": 5 } ] }));
+                changed = true;
+            }
+        }
+        if changed {
+            fs::write(path.with_extension(format!("json.bak-{}", now())), &text).map_err(|e| e.to_string())?;
+            fs::write(&path, serde_json::to_string_pretty(&root).map_err(|e| e.to_string())? + "\n").map_err(|e| e.to_string())?;
+        }
+        println!("{agent}: {} {}", if remove { "hooks removed from" } else { "hooks installed in" }, path.display());
+    }
+    Ok(())
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -240,7 +287,12 @@ pub fn main(args: &[String]) -> i32 {
                 let kind = o.rest.first().cloned().unwrap_or_default();
                 let _ = hook(&kind, o.rest.get(1..).unwrap_or(&[]));
             }
-            _ => return Err("usage: nv todo <list|add|done|undone|toggle|rm|clear-done|path|hook>".into()),
+            "hooks" => match o.rest.first().map(String::as_str) {
+                Some("install") => install_hooks(false)?,
+                Some("remove") => install_hooks(true)?,
+                _ => return Err("usage: nv todo hooks <install|remove>".into()),
+            },
+            _ => return Err("usage: nv todo <list|add|done|undone|toggle|rm|clear-done|path|hooks install|hooks remove>".into()),
         }
         Ok(())
     })();

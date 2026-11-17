@@ -64,10 +64,99 @@ fn first_line(text: &str, max: usize) -> String {
     }
 }
 
+/// A short headline for the list: the first sentence of the instruction, without links,
+/// cut at a word boundary. The whole instruction is kept separately as `detail`.
+fn headline(text: &str) -> String {
+    const MAX: usize = 46;
+    // Words that open a sentence without saying anything about the task.
+    const FILLERS: [&str; 16] = ["지금", "추가로", "그리고", "아", "근데", "그런데", "또", "그럼", "혹시", "일단", "please", "also", "and", "then", "so", "ok"];
+    // Words that mark the sentence that actually asks for something.
+    const ASKS: [&str; 29] = [
+        "해줘", "해줄래", "해주세요", "해줘요", "하자", "만들어", "추가", "수정", "구현", "고쳐", "바꿔", "확인", "진행", "설치", "적용",
+        "정리", "삭제", "please", "add", "fix", "make", "create", "update", "implement", "remove", "change", "check", "install", "write",
+    ];
+
+    // Split into sentences: a terminator followed by white space or the end, or a line break.
+    let mut sentences: Vec<Vec<String>> = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = text.chars().collect();
+    for (i, c) in chars.iter().enumerate() {
+        let end_of_line = *c == '\n';
+        let terminator = matches!(c, '.' | '?' | '!' | '。') && chars.get(i + 1).map(|n| n.is_whitespace()).unwrap_or(true);
+        if !end_of_line {
+            current.push(*c);
+        }
+        if end_of_line || terminator {
+            sentences.push(current.split_whitespace().map(str::to_string).collect());
+            current.clear();
+        }
+    }
+    sentences.push(current.split_whitespace().map(str::to_string).collect());
+
+    let cleaned: Vec<Vec<String>> = sentences
+        .into_iter()
+        .map(|words| {
+            let mut words: Vec<String> = words.into_iter().filter(|w| !w.starts_with("http://") && !w.starts_with("https://")).collect();
+            while words.len() > 1 && FILLERS.contains(&words[0].trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase().as_str()) {
+                words.remove(0);
+            }
+            words
+        })
+        .filter(|words| !words.is_empty())
+        .collect();
+    // Korean endings attach to the word, so they match inside it; English verbs must be whole words
+    // ("check" must not match "checkout").
+    let asks = |words: &Vec<String>| {
+        words.iter().any(|w| {
+            let w = w.trim_matches(|c: char| !c.is_alphanumeric()).to_lowercase();
+            ASKS.iter().any(|a| if a.is_ascii() { w == *a } else { w.contains(a) })
+        })
+    };
+    let chosen = cleaned
+        .iter()
+        .find(|w| w.len() >= 3 && asks(w))
+        .or_else(|| cleaned.iter().find(|w| w.len() >= 3))
+        .or_else(|| cleaned.first());
+    let Some(words) = chosen else { return String::new() };
+
+    let mut out = String::new();
+    for word in words {
+        let next = if out.is_empty() { word.chars().count() } else { out.chars().count() + 1 + word.chars().count() };
+        if next > MAX {
+            if out.is_empty() {
+                out = word.chars().take(MAX - 1).collect();
+            }
+            out.push('…');
+            return out;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
+    out.trim_end_matches(['.', '。', '?', '!']).to_string()
+}
+
+/// Lets a person or an agent replace an item's headline with a better one.
+fn retitle(items: &mut [Value], id: &str, title: &str) -> bool {
+    let title: String = title.trim().chars().take(80).collect();
+    for item in items.iter_mut() {
+        if str_of(item, "id") == id && !title.is_empty() {
+            if item.get("detail").and_then(|d| d.as_str()).unwrap_or("").is_empty() {
+                item["detail"] = item["text"].clone();
+            }
+            item["text"] = json!(title);
+            return true;
+        }
+    }
+    false
+}
+
 fn add(items: &mut Vec<Value>, text: &str, source: &str, key: &str, cwd: &str, done: bool) -> String {
     let id = new_id();
+    let detail: String = text.trim().chars().take(4000).collect();
     items.push(json!({
-        "id": id, "text": first_line(text, 160), "done": done, "source": source, "key": key, "cwd": cwd,
+        "id": id, "text": headline(text), "detail": detail, "done": done, "source": source, "key": key, "cwd": cwd,
         "created": now(), "done_at": if done { json!(now()) } else { Value::Null },
     }));
     id
@@ -136,11 +225,12 @@ fn hook(kind: &str, args: &[String]) -> Result<(), String> {
         "claude-prompt" | "codex-prompt" => {
             let agent = kind.split('-').next().unwrap_or("claude");
             let v = stdin_json();
-            let text = first_line(str_of(&v, "prompt"), 160);
-            if text.is_empty() || text.starts_with('/') {
+            let prompt = str_of(&v, "prompt");
+            let first = first_line(prompt, 160);
+            if first.is_empty() || first.starts_with('/') {
                 return Ok(());
             }
-            add(&mut items, &text, agent, &session_of(&v), str_of(&v, "cwd"), false);
+            add(&mut items, prompt, agent, &session_of(&v), str_of(&v, "cwd"), false);
         }
         // Stop (Claude Code, Codex): the turn ended, so that session's open items are checked.
         "claude-stop" | "codex-stop" => {
@@ -274,6 +364,16 @@ pub fn main(args: &[String]) -> i32 {
                 }
                 if !hit {
                     return Err(format!("no to-do with id '{id}'"));
+                }
+                save(&items)?;
+            }
+            "title" => {
+                // nv todo title <id> <new headline>
+                let id = o.rest.first().cloned().unwrap_or_default();
+                let title = o.rest.get(1..).unwrap_or(&[]).join(" ");
+                let mut items = load();
+                if !retitle(&mut items, &id, &title) {
+                    return Err("usage: nv todo title <id> <new headline>".into());
                 }
                 save(&items)?;
             }

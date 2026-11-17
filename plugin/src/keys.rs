@@ -53,8 +53,10 @@ pub fn main(args: &[String]) -> i32 {
             let slot = root.entry(section.clone()).or_insert_with(|| Value::Object(Map::new()));
             let (Some(slot), Some(binds)) = (slot.as_object_mut(), binds.as_object()) else { continue };
             for (key, action) in binds {
+                // An older version of this pack bound the browser to a Node script that no longer exists.
+                let stale = slot.get(key).map(|c| c.to_string().contains("browse.mjs")).unwrap_or(false);
                 match slot.get(key) {
-                    Some(current) if current != action => kept.push(format!("{section} {key}")),
+                    Some(current) if current != action && !stale => kept.push(format!("{section} {key}")),
                     _ => {
                         slot.insert(key.clone(), action.clone());
                         added.push(format!("{section} {key}"));

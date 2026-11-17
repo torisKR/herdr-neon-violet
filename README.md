@@ -92,6 +92,7 @@ The same pack for the Herdr desktop app is in `app/`. The installers copy it int
 | Pull requests | `ctrl+shift+g` | Open pull requests of the repository you are in: description, changed files, comments. Comment and merge from the panel |
 | Code highlighting | `ctrl+shift+h` | Paste code and view syntax colors, line numbers and folding |
 | Keyboard shortcuts | `ctrl+shift+k` | Search current bindings, actions and contexts |
+| AI usage | `+` → AI usage | Tokens, model costs and account limits for this computer and connected machines; [details](docs/AI-USAGE.md) |
 
 In the `neon-violet` layout the `+` button at the top right also lists these tools (ALL agents, Devices, Code highlighting, Keyboard shortcuts, Pull requests, Browser), and a file clicked in the Files panel opens in the main area as an editor tab: syntax highlighting, line numbers, folding, editing with `ctrl+s` to save, and a rendered preview for Markdown. Files on another machine open read-only. Mermaid diagrams are shown as source, not drawn.
 

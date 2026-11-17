@@ -34,6 +34,74 @@ const find = (node, id) => node && typeof node === "object"
   ? node.name === id ? node : node.items?.map(child => find(child, id)).find(Boolean) : null;
 const textOf = node => typeof node === "string" ? node : node?.items?.map(textOf).join("\n") ?? "";
 
+for (const [locale, title] of [["ko-KR", "AI 사용량"], ["en-US", "AI usage"], ["ja", "AI使用量"], ["zh-CN", "AI用量"]]) {
+  test(`usage panel and launcher follow ${locale}`, () => {
+    const overrides = { settings: () => ({ language: locale }) };
+    const menu = harness("nv-new-menu", overrides), usage = harness("nv-usage", overrides);
+    assert.ok(textOf(usage.view.render()).includes(title));
+    const item = find(menu.view.render(), "nv-usage");
+    assert.ok(textOf(item).includes(title));
+    item.events.on_click({}, menu.cx);
+    assert.deepEqual(menu.calls, [{ name: "mod.open", args: { name: "nv-usage" } }]);
+  });
+}
+
+test("usage reports unavailable quotas and unknown prices without fabricated zeroes", () => {
+  const h = harness("nv-usage", { settings: () => ({ language: "ko" }) });
+  h.view.groups = [{ machine: null, data: { days: 1, timezone: "Asia/Seoul", history: {
+    available: true, providers: [{ agent: "codex", total: 150, costUsd: null, models: [{ name: "unpriced", input: 50, output: 100, cache: 0, costUsd: null }] }],
+  }, quotas: { claude: { available: false, error: "Sign-in unavailable" } } } }];
+  const text = textOf(h.view.render());
+  assert.ok(text.includes("150 토큰"));
+  assert.ok(text.includes("API 환산 추정 USD —"));
+  assert.ok(text.includes("Sign-in unavailable"));
+  assert.ok(!text.includes("0% 남음"));
+  assert.ok(!text.includes("$0.00"));
+});
+
+test("changing usage periods discards stale scans and reuses fresh account quotas", async () => {
+  const first = deferred(), state = new Map(), scans = [];
+  const report = days => ({ version: 1, days, timezone: "Asia/Seoul", history: { available: true, noRecords: true }, quotas: { codex: { available: true, windows: [] } } });
+  const h = harness("nv-usage", {
+    shared: k => state.get(k), setShared: (k, v) => state.set(k, v),
+    readTextFile: async () => "// collector source",
+    exec: async (_cmd, args) => {
+      if (args[0] === "-p") return ok("Asia/Seoul");
+      scans.push(args.at(-1));
+      return scans.length === 1 ? first.promise : ok(report(7));
+    },
+  });
+  h.view.refresh(h.cx); await h.settle();
+  h.view.selectDays(7, h.cx);
+  assert.equal(h.view.groups.length, 0);
+  first.resolve(ok(report(1))); await h.settle();
+  assert.equal(scans.length, 2);
+  assert.ok(scans[1].includes('"days":7'));
+  assert.ok(scans[1].includes('"skipQuotas":true'));
+  assert.equal(h.view.groups[0].data.days, 7);
+  assert.equal(h.view.groups[0].data.quotas.codex.available, true);
+});
+
+test("usage scans every connected machine and supports a private Unix runtime", async () => {
+  const calls = [];
+  const h = harness("nv-usage", {
+    machines: () => [{ name: "server" }, { name: "offline", layout: "unavailable" }, { name: "server" }],
+    readTextFile: async () => "// collector source",
+    exec: async (cmd, args, opts) => {
+      if (args[0] === "-p") return ok("UTC");
+      calls.push({ cmd, args, opts });
+      if (cmd === "node" && opts.on === "server") throw new Error("`herdr.exec`: cannot start node: No such file or directory (os error 2)");
+      return ok({ version: 1, days: 1, history: { available: true, noRecords: true }, quotas: {} });
+    },
+  });
+  h.view.refresh(h.cx); await h.settle();
+  assert.deepEqual(plain(h.view.groups.map(g => g.machine)), [null, "server"]);
+  const fallback = calls.find(c => c.cmd === "sh");
+  assert.equal(fallback.opts.on, "server");
+  assert.ok(fallback.args[1].includes('exec "$nv_usage_node" "$@"'));
+  assert.equal(h.view.groups[1].error, undefined);
+});
+
 function harness(name, overrides = {}, storage = new Map()) {
   const tasks = [], failures = [], calls = [], overlays = [], scrolls = [];
   const cx = {

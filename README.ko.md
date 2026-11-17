@@ -92,6 +92,7 @@ Herdr 데스크톱 앱용 묶음은 `app/` 폴더에 있습니다. 설치 스크
 | Pull requests | `ctrl+shift+g` | 지금 있는 저장소의 열린 PR: 설명, 바뀐 파일, 댓글. 패널에서 댓글과 머지를 합니다 |
 | 코드 하이라이팅 | `ctrl+shift+h` | 코드 붙여 넣기, 구문 색상·줄 번호·접기 |
 | 단축키 모음 | `ctrl+shift+k` | 현재 단축키·동작·적용 범위 검색 |
+| AI 사용량 | `+` → AI 사용량 | 이 컴퓨터와 연결된 PC·서버의 토큰·모델별 추정 비용·계정 한도 ([안내](docs/AI-USAGE.md)) |
 
 `neon-violet` 레이아웃에서는 오른쪽 위 `+` 버튼에도 이 도구들(ALL agents, Devices, Code highlighting, Keyboard shortcuts, Pull requests, Browser)이 나옵니다. Files 패널에서 파일을 누르면 메인 영역에 편집기 탭으로 열립니다: 구문 강조, 줄 번호, 접기, 편집과 `ctrl+s` 저장, Markdown 미리보기. 다른 머신의 파일은 읽기 전용으로 열립니다. Mermaid 다이어그램은 그림이 아니라 원문으로 보입니다.
 

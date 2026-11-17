@@ -7,7 +7,7 @@ The implementation was compared with [azizuysal/herdr-browser](https://github.co
 
 ## Install
 
-Run `./scripts/install-browser.sh` on macOS or Linux. It builds the pinned plugin, installs its Desktop assets, and downloads its dedicated Chrome for Testing. The regular Unix pack installer runs this too. Graphical Browser is not yet supported by this pack on native Windows; `nv browse` remains available there as the text reader.
+Run `./scripts/install-browser.sh` on macOS or Linux with Rust/Cargo and Git installed. It builds the pinned plugin, installs its Desktop assets, and downloads its dedicated Chrome for Testing. HTML Browser previews also require Node.js. The regular Unix pack installer attempts browser setup after applying its key migration; missing build tools or a failed download leave the rest of the pack installed and print retry instructions. Graphical Browser is not yet supported by this pack on native Windows; `nv browse` remains available there as the text reader.
 
 The installer preserves existing keys, adds the upstream Browser menu, and makes the pack's Browser menu / Command-Shift-U open the live view. It does not install global agent instructions or import browser cookies. The browser starts with its own profile.
 

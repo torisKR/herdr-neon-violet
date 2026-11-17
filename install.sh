@@ -44,11 +44,19 @@ if [ -d "$app" ]; then
     mv "$app/mods/todos" "$retired/"
   fi
   cp "$nv" "$app/bin/nv"
+  cp "$here/app/browser/nv-preview.mjs" "$app/bin/nv-preview.mjs"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
   cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$app/mods/"
-  sh "$here/scripts/install-browser.sh"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
+  # Browser setup is optional; a missing toolchain/download must not interrupt the pack migration.
+  if command -v cargo >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
+    if ! sh "$here/scripts/install-browser.sh"; then
+      echo "warning: Browser setup failed; the desktop pack is installed. Retry ./scripts/install-browser.sh." >&2
+    fi
+  else
+    echo "warning: Browser setup needs Rust/Cargo and Git. Install them, then run ./scripts/install-browser.sh." >&2
+  fi
   echo "installed Herdr app pack -> $app"
   echo "  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)"
   echo "  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u"

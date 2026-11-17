@@ -1,6 +1,6 @@
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, Editor, EditorState, TextView } from "gpui-base";
-import { appHome, checking, closeOverlay, exec, nextCommand, openOverlay, props, settings, shared, setShared, theme, window } from "herdr";
+import { appHome, checking, closeOverlay, exec, nextCommand, openOverlay, props, settings, shared, setShared, theme, window, writeTextFile } from "herdr";
 
 const LANGUAGES = { en: "English", ja: "日本語", zh: "中文", ko: "한국어" };
 const code = value => {
@@ -78,13 +78,21 @@ export default class CodeHighlighting extends View {
   browserPreview(cx) {
     if (this.grammar !== "html" || this.previewBusy) return;
     this.previewBusy = true;
+    this.previewError = null;
     const html = this.state.value();
     cx.spawn(async cx => {
+      let input;
       try {
-        const r = await exec("node", [`${appHome()}/bin/nv-preview.mjs`, appHome(), JSON.stringify({ html })]);
+        const helper = `${appHome()}/bin/nv-preview.mjs`;
+        const reserved = await exec("node", [helper, "reserve", appHome()]);
+        if (reserved.code !== 0) throw new Error(reserved.stderr || reserved.stdout);
+        input = JSON.parse(reserved.stdout).input;
+        await writeTextFile(input, JSON.stringify({ html }), "");
+        const r = await exec("node", [helper, "render", appHome(), input]);
         if (r.code !== 0) throw new Error(r.stderr || r.stdout);
         openOverlay({ mod: "nv-browser", kind: "dialog", width: 460, height: 160, props: { url: JSON.parse(r.stdout).url } });
       } catch (error) { this.previewError = String(error.message ?? error); }
+      finally { if (input) await exec("node", [`${appHome()}/bin/nv-preview.mjs`, "discard", appHome(), input]).catch(() => {}); }
       this.previewBusy = false; cx.notify();
     });
   }

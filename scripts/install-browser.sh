@@ -1,5 +1,11 @@
 #!/usr/bin/env sh
 set -eu
+for tool in cargo git; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "Browser setup requires $tool. Install it, then run ./scripts/install-browser.sh." >&2
+    exit 1
+  fi
+done
 # MIT upstream, pinned so a normal theme install never builds an unreviewed revision.
 revision=b409c5f2625676964e21ad54ff6a6627abb05e3b
 root="${XDG_DATA_HOME:-$HOME/.local/share}/herdr-neon-violet/browser/$revision"

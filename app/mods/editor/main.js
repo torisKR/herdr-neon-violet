@@ -153,11 +153,18 @@ export default class EditorPane extends View {
     this.previewBusy = true;
     const html = this.state.value();
     cx.spawn(async cx => {
+      let input;
       try {
-        const r = await exec("node", [`${appHome()}/bin/nv-preview.mjs`, appHome(), JSON.stringify({ html, file: this.file, on: this.on })]);
+        const helper = `${appHome()}/bin/nv-preview.mjs`;
+        const reserved = await exec("node", [helper, "reserve", appHome()]);
+        if (reserved.code !== 0) throw new Error(reserved.stderr || reserved.stdout);
+        input = JSON.parse(reserved.stdout).input;
+        await writeTextFile(input, JSON.stringify({ html, file: this.file, on: this.on }), "");
+        const r = await exec("node", [helper, "render", appHome(), input]);
         if (r.code !== 0) throw new Error(r.stderr || r.stdout);
         openOverlay({ mod: "nv-browser", kind: "dialog", width: 460, height: 160, props: { url: JSON.parse(r.stdout).url } });
       } catch (error) { this.note = { text: String(error.message ?? error), ok: false }; }
+      finally { if (input) await exec("node", [`${appHome()}/bin/nv-preview.mjs`, "discard", appHome(), input]).catch(() => {}); }
       this.previewBusy = false; cx.notify();
     });
   }

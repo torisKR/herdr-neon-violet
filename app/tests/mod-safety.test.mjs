@@ -477,3 +477,29 @@ test("graphical Browser terminal runs locally even from a remote space", async (
   assert.equal(launch.args.at(-2), "/local/herdr-app/bin/nv-browser-view");
   assert.equal(h.overlays[0].layout.children[1].content.terminal, "t9");
 });
+
+for (const mod of ["editor", "nv-code"]) {
+  test(`${mod} transfers large HTML drafts through a private input file`, async () => {
+    const commands = [], writes = [], input = "/local/herdr-app/previews/input-test.json";
+    const h = harness(mod, {
+      props: () => ({ file: "/repo/index.html" }),
+      exec: async (command, args) => {
+        commands.push({ command, args });
+        return ok(args[1] === "reserve" ? { input } : args[1] === "render" ? { url: "file:///preview.html" } : {});
+      },
+      writeTextFile: async (...args) => writes.push(args),
+    });
+    if (mod === "nv-code") h.view.selectGrammar("html", h.cx);
+    else h.view.build("", h.cx);
+    const html = `<h1>${"한글".repeat(100000)}</h1>`;
+    h.view.state.set_value(html);
+    h.view.browserPreview(h.cx); await h.settle();
+    assert.equal(commands.length, 3);
+    assert.equal(commands.some(c => c.args.some(arg => arg.length > 1000)), false);
+    assert.equal(writes[0][0], input);
+    assert.equal(writes[0][2], "");
+    assert.equal(JSON.parse(writes[0][1]).html, html);
+    assert.equal(h.overlays[0].props.url, "file:///preview.html");
+    assert.equal(h.view.state.value(), html);
+  });
+}

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, stat, rm } from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { htmlPreview } from '../browser/nv-preview.mjs';
 
 test('HTML browser preview renders an unsaved snapshot with local assets and leaves the source untouched', async () => {
@@ -29,5 +30,51 @@ test('remote HTML previews never resolve assets against a different local projec
     const html = '<h1>Remote draft</h1>';
     const result = await htmlPreview(root, { file: '/remote/repo/index.html', on: 'remote', html });
     assert.equal(await readFile(result.file, 'utf8'), html);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+for (const [base, expected] of [
+  ['<base href="./assets/">', 'assets/'],
+  ["<base target='_blank'>", './'],
+  ['<base target="_blank"><base href=../assets/>', '../assets/'],
+  ['<base href="./assets/?a=1&amp;b=2">', 'assets/?a=1&amp;b=2'],
+]) {
+  test(`local assets keep their source location with ${base}`, async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'nv-preview-base-'));
+    try {
+      const file = path.join(root, 'index.html');
+      const result = await htmlPreview(root, { file, html: `<head>${base}</head><link href="style.css">` });
+      const html = await readFile(result.file, 'utf8');
+      const href = new URL(expected.replaceAll('&amp;', '&'), pathToFileURL(file)).href.replaceAll('&', '&amp;');
+      assert.ok(html.includes(`href="${href}"`), html);
+      if (base.includes('target')) assert.ok(html.includes('target='));
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+}
+
+test('a base example inside a script or comment does not change asset resolution', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'nv-preview-script-'));
+  try {
+    const html = '<head><!-- <base href="/wrong/"> --><script>const sample = \'<base href="/wrong/">\';</script></head>';
+    const result = await htmlPreview(root, { file: path.join(root, 'index.html'), html });
+    const output = await readFile(result.file, 'utf8');
+    assert.ok(output.includes(`<base href="${pathToFileURL(root + path.sep).href}">`));
+    assert.ok(output.includes('const sample = \'<base href="/wrong/">\''));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('the CLI previews a large Unicode draft using a private file instead of process arguments', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'nv-preview-large-'));
+  const helper = new URL('../browser/nv-preview.mjs', import.meta.url);
+  const call = (...args) => JSON.parse(execFileSync(process.execPath, [fileURLToPath(helper), ...args], { encoding: 'utf8' }));
+  try {
+    const { input } = call('reserve', root);
+    if (process.platform !== 'win32') assert.equal((await stat(input)).mode & 0o777, 0o600);
+    const html = `<h1>Large draft</h1><p>${'한글'.repeat(100000)}</p>`;
+    await writeFile(input, JSON.stringify({ html }));
+    const result = call('render', root, input);
+    assert.equal(await readFile(result.file, 'utf8'), html);
+    await assert.rejects(stat(input), { code: 'ENOENT' });
+    call('discard', root, input); // cleanup is safe after the helper consumed its input
   } finally { await rm(root, { recursive: true, force: true }); }
 });

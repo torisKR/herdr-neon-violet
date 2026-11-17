@@ -51,15 +51,19 @@ export default class Todos extends View {
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
     if (checking()) return;
-    // keys.json: "todos.details" opens (or closes) the details of the newest open item
+    // keys.json: "todos.details" opens (or closes) the details of the newest open item, "todos.fold" folds the list
     cx.spawn(async (cx) => {
       for (;;) {
-        if ((await nextCommand()) === "details") {
+        const command = await nextCommand();
+        if (command === "details") {
           const first = this.items.find((it) => !it.done) ?? this.items[0];
           const key = first ? `${first.on ?? "local"}-${first.id}` : null;
           this.open = this.open === key ? null : key;
-          cx.notify();
+        } else if (command === "fold") {
+          this.collapsed = !this.collapsed;
+          localStorage.setItem("collapsed", this.collapsed ? "1" : "0");
         }
+        cx.notify();
       }
     });
     cx.timer.every(4000, (cx) => this.refresh(cx));

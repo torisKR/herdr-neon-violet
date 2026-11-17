@@ -586,3 +586,82 @@ test("Unix ADB discovery executes custom SDK and NV_ADB paths with spaces and qu
     }
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+test("booting a remote Windows AVD uses that machine and its discovered emulator", async () => {
+  const commands = [], h = harness("devices", { exec: async (command, args, options) => { commands.push({ command, args, options }); return ok(""); } });
+  h.view.refresh = () => {};
+  h.view.boot({ kind: "avd", state: "stopped", id: "Remote_AVD", name: "Remote AVD", m: { machine: "windows", unix: false } }, h.cx);
+  await h.settle();
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].options.on, "windows");
+  assert.equal(commands[0].command, "powershell");
+  const script = commands[0].args.at(-1);
+  assert.ok(script.includes("$env:NV_EMULATOR"));
+  assert.ok(script.includes("'emulator\\emulator.exe'"));
+  assert.ok(script.includes("Start-Process -FilePath $bin"));
+  assert.ok(script.includes("@('-avd','Remote_AVD')"));
+});
+
+test("an unavailable discovered emulator reports a boot failure", async () => {
+  const h = harness("devices", { exec: async () => ({ code: 127, stdout: "", stderr: "missing emulator" }) });
+  h.view.refresh = () => {};
+  h.view.boot({ kind: "avd", state: "stopped", id: "QA", name: "QA", m: { machine: null, unix: true } }, h.cx);
+  await h.settle();
+  assert.equal(h.view.noteError, true);
+  assert.equal(h.view.note, "Could not start QA");
+});
+
+test("Unix AVD boot executes NV_EMULATOR with a quoted SDK path", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "nv-emulator-"));
+  try {
+    const bin = path.join(root, "emulator's file"), log = path.join(root, "args");
+    writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$@" > "$NV_DEVICE_BOOT_LOG"\n', { mode: 0o755 });
+    const h = harness("devices", { exec: async (command, args) => {
+      const env = { PATH: "/usr/bin:/bin", HOME: root, NV_EMULATOR: bin, NV_DEVICE_BOOT_LOG: log };
+      const r = spawnSync(command, args, { env, encoding: "utf8" });
+      return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+    } });
+    h.view.refresh = () => {};
+    h.view.boot({ kind: "avd", state: "stopped", id: "QA's_AVD", name: "QA", m: { machine: "remote", unix: true } }, h.cx);
+    await h.settle();
+    let content;
+    for (let i = 0; i < 100; i++) {
+      try { content = readFileSync(log, "utf8"); if (content) break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.equal(content, "-avd\nQA's_AVD\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("ADB listener discovery reads only existing server ports and removes duplicate sockets", async () => {
+  const requests = [], h = harness("devices", { exec: async (command, args, options) => {
+    requests.push({ command, args, options });
+    return ok("p100\nf19\nn127.0.0.1:5037\np200\nf15\nn127.0.0.1:5043\nn[::1]:5043\n");
+  } });
+  assert.deepEqual(plain(await h.view.adbPorts({ machine: "mac", unix: true })), ["5037", "5043"]);
+  assert.equal(requests[0].command, "lsof");
+  assert.equal(requests[0].options.on, "mac");
+  assert.ok(requests[0].args.includes("/^adb$/"));
+});
+
+test("a physical phone on a dedicated ADB server appears and metadata uses the same port", async () => {
+  const h = harness("devices"), requests = [];
+  h.view.adbPorts = async () => ["5037", "5043"];
+  h.view.tool = async (_m, name, args) => {
+    requests.push({ name, args });
+    const port = args[0] === "-P" ? args[1] : null;
+    if (args.includes("devices")) return port === "5043" ? "List of devices attached\nUSB123 device usb:1-1 model:Galaxy_Test\n" :
+      "List of devices attached\nemulator-5554 device model:sdk_gphone\nUSB123 offline\n";
+    if (args.includes("getprop")) return "16\n";
+    if (args.includes("emu")) return "qa_avd\nOK\n";
+    return "";
+  };
+  const data = await h.view.android({ machine: null, unix: true });
+  assert.equal(data.rows.length, 2);
+  const phone = data.rows.find(r => r.id === "USB123");
+  assert.equal(phone.state, "online");
+  assert.equal(phone.adbPort, "5043");
+  assert.equal(phone.detail, "Android 16 · USB · ADB 5043");
+  assert.ok(requests.some(r => r.args.join(" ") === "-P 5043 -s USB123 shell getprop ro.build.version.release"));
+  assert.equal(data.missing, false);
+});

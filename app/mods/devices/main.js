@@ -14,7 +14,14 @@ const SDK_PATH =
 const quote = value => `'${String(value).replace(/'/g, `'\\''`)}'`;
 const psQuote = value => `'${String(value).replace(/'/g, "''")}'`;
 
-function windowsTool(name, args) {
+function unixTool(name, args, background = false) {
+  const variable = name === "adb" ? "NV_ADB" : name === "emulator" ? "NV_EMULATOR" : null;
+  const select = variable ? `nv_tool="\${${variable}:-${name}}"; ` : `nv_tool=${quote(name)}; `;
+  const launch = `${background ? "nohup " : ""}"$nv_tool" ${args.map(quote).join(" ")}`;
+  return SDK_PATH + select + (background ? `command -v "$nv_tool" >/dev/null 2>&1 || exit 127; ${launch} >/dev/null 2>&1 &` : launch);
+}
+
+function windowsTool(name, args, background = false) {
   const sub = name === "adb" ? "platform-tools" : "emulator";
   const variable = name === "adb" ? "NV_ADB" : "NV_EMULATOR";
   return `[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); ` +
@@ -23,7 +30,9 @@ function windowsTool(name, args) {
     `if ($env:LOCALAPPDATA) { $roots+=(Join-Path $env:LOCALAPPDATA 'Android\\Sdk') }; ` +
     `foreach ($root in $roots) { if ($root) { $bins+=(Join-Path $root ${psQuote(sub + "\\" + name + ".exe")}) } }; ` +
     `foreach ($scope in @('User','Machine')) { foreach ($dir in ([Environment]::GetEnvironmentVariable('Path',$scope) -split ';')) { if ($dir) { $bins+=(Join-Path ([Environment]::ExpandEnvironmentVariables($dir.Trim('"'))) ${psQuote(name + ".exe")}) } } }; ` +
-    `foreach ($bin in $bins) { if ($bin -and (Test-Path -LiteralPath $bin -PathType Leaf)) { & $bin ${args.map(psQuote).join(" ")}; exit $LASTEXITCODE } }; exit 127`;
+    `foreach ($bin in $bins) { if ($bin -and (Test-Path -LiteralPath $bin -PathType Leaf)) { ` +
+    (background ? `try { Start-Process -FilePath $bin -ArgumentList @(${args.map(psQuote).join(",")}) -ErrorAction Stop | Out-Null; exit 0 } catch { Write-Error $_; exit 1 }`
+      : `& $bin ${args.map(psQuote).join(" ")}; exit $LASTEXITCODE`) + ` } }; exit 127`;
 }
 
 async function tryExec(command, args, options) {
@@ -50,10 +59,7 @@ export default class Devices extends View {
   async tool(m, name, args, timeout = 10000) {
     const on = m.machine;
     if (m.unix) {
-      const variable = name === "adb" ? "NV_ADB" : name === "emulator" ? "NV_EMULATOR" : null;
-      const command = [name, ...args].map(quote).join(" ");
-      const override = variable ? `if [ -n "\${${variable}:-}" ]; then "$${variable}" ${args.map(quote).join(" ")}; else ${command}; fi` : command;
-      return tryExec("sh", ["-c", SDK_PATH + override], { on, timeout });
+      return tryExec("sh", ["-c", unixTool(name, args)], { on, timeout });
     }
     if (name === "adb" || name === "emulator") return tryExec("powershell", ["-NoProfile", "-Command", windowsTool(name, args)], { on, timeout });
     return tryExec(name, args, { on, timeout });
@@ -102,40 +108,67 @@ export default class Devices extends View {
     };
   }
 
-  async android(m) {
-    const out = await this.tool(m, "adb", ["devices", "-l"]);
-    if (out === null) return { missing: true, rows: [] };
-    const rows = [];
-    for (const line of out.split(/\r?\n/)) {
-      const m = line.trim().match(/^(\S+)\s+(device|offline|unauthorized|recovery|sideload|bootloader|no permissions)(?:\s+(.*))?$/);
-      if (!m) continue;
-      const model = (m[3] || "").split(/\s+/).find((p) => p.startsWith("model:"));
-      rows.push({
-        kind: "android",
-        id: m[1],
-        state: m[2] === "device" ? "online" : m[2],
-        name: (model ? model.slice(6) : m[1]).replace(/_/g, " "),
-        emulator: m[1].startsWith("emulator-"),
-        connection: /(?:^|\s)usb:/.test(m[3] ?? "") ? "USB" : /:\d+$|\._adb-tls-connect\._tcp\.?$/.test(m[1]) ? "Wi-Fi" : "physical device",
-        detail: "",
-      });
+  async adbPorts(m) {
+    let ports = [];
+    if (m.unix) {
+      const out = await tryExec("lsof", ["-nP", "-a", "-c", "/^adb$/", "-iTCP", "-sTCP:LISTEN", "-Fn"], { on: m.machine, timeout: 8000 });
+      if (out !== null) ports = out.split(/\r?\n/).filter(line => line.startsWith("n")).map(line => line.match(/:(\d+)$/)?.[1]);
+      else {
+        const sockets = await tryExec("ss", ["-H", "-lntp"], { on: m.machine, timeout: 8000 });
+        ports = (sockets ?? "").split(/\r?\n/).filter(line => line.includes('"adb"')).map(line => line.trim().split(/\s+/)[3]?.match(/:(\d+)$/)?.[1]);
+      }
+    } else {
+      const script = "$ids=@(Get-Process adb -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id); if ($ids.Count) { Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } | Select-Object -ExpandProperty LocalPort -Unique }";
+      const out = await tryExec("powershell", ["-NoProfile", "-Command", script], { on: m.machine, timeout: 8000 });
+      ports = (out ?? "").split(/\r?\n/).map(line => line.trim());
     }
+    return [...new Set(ports.filter(port => /^\d+$/.test(port ?? "") && Number(port) > 0 && Number(port) <= 65535))];
+  }
+
+  async android(m) {
+    // Query only existing local listeners, including dedicated ADB servers used by other tools.
+    const ports = [null, ...await this.adbPorts(m)];
+    const results = await Promise.all(ports.map(async port => ({ port,
+      out: await this.tool(m, "adb", [...(port ? ["-P", port] : []), "devices", "-l"]),
+    })));
+    const devices = new Map();
+    for (const { port, out } of results) {
+      if (out === null) continue;
+      for (const line of out.split(/\r?\n/)) {
+        const match = line.trim().match(/^(\S+)\s+(device|offline|unauthorized|recovery|sideload|bootloader|no permissions)(?:\s+(.*))?$/);
+        if (!match) continue;
+        const model = (match[3] || "").split(/\s+/).find((p) => p.startsWith("model:"));
+        const row = {
+        kind: "android",
+        id: match[1],
+        state: match[2] === "device" ? "online" : match[2],
+        name: (model ? model.slice(6) : match[1]).replace(/_/g, " "),
+        emulator: match[1].startsWith("emulator-"),
+        connection: /(?:^|\s)usb:/.test(match[3] ?? "") ? "USB" : /:\d+$|\._adb-tls-connect\._tcp\.?$/.test(match[1]) ? "Wi-Fi" : "physical device",
+        adbPort: port,
+        detail: "",
+        };
+        const current = devices.get(row.id);
+        if (!current || current.state !== "online" && row.state === "online") devices.set(row.id, row);
+      }
+    }
+    const rows = [...devices.values()];
     await Promise.all(
       rows
         .filter((r) => r.state === "online")
         .map(async (r) => {
           const [version, avd] = await Promise.all([
-            this.tool(m, "adb", ["-s", r.id, "shell", "getprop", "ro.build.version.release"]),
-            r.emulator ? this.tool(m, "adb", ["-s", r.id, "emu", "avd", "name"]) : null,
+            this.tool(m, "adb", [...(r.adbPort ? ["-P", r.adbPort] : []), "-s", r.id, "shell", "getprop", "ro.build.version.release"]),
+            r.emulator ? this.tool(m, "adb", [...(r.adbPort ? ["-P", r.adbPort] : []), "-s", r.id, "emu", "avd", "name"]) : null,
           ]);
           if (avd) {
             r.avd = avd.split(/\r?\n/)[0].trim();
             if (r.avd) r.name = r.avd.replace(/_/g, " ");
           }
-          r.detail = `Android ${version ? version.trim() : "?"} · ${r.emulator ? "emulator" : r.connection}`;
+          r.detail = `Android ${version ? version.trim() : "?"} · ${r.emulator ? "emulator" : r.connection}${r.adbPort ? ` · ADB ${r.adbPort}` : ""}`;
         }),
     );
-    return { missing: false, rows };
+    return { missing: results.every(r => r.out === null), rows };
   }
 
   async avds(m, running) {
@@ -171,16 +204,21 @@ export default class Devices extends View {
   boot(row, cx) {
     if (row.state !== "stopped") return;
     this.note = `Booting ${row.name}…`;
+    this.noteError = false;
     cx.notify();
     cx.spawn(async (cx) => {
       if (row.kind === "avd") {
-        if (row.m.unix) await tryExec("sh", ["-c", `${SDK_PATH}nohup emulator -avd '${row.id}' >/dev/null 2>&1 &`], { on: row.m.machine, timeout: 8000 });
-        else await tryExec("cmd", ["/c", "start", "", "emulator", "-avd", row.id], { timeout: 8000 });
+        const options = { on: row.m.machine, timeout: 8000 };
+        const result = row.m.unix
+          ? await tryExec("sh", ["-c", unixTool("emulator", ["-avd", row.id], true)], options)
+          : await tryExec("powershell", ["-NoProfile", "-Command", windowsTool("emulator", ["-avd", row.id], true)], options);
+        if (result === null) { this.note = `Could not start ${row.name}`; this.noteError = true; }
       } else if (row.kind === "sim") {
         await this.tool(row.m, "xcrun", ["simctl", "boot", row.id], 60000);
         await this.tool(row.m, "open", ["-a", "Simulator"]);
       }
       this.refresh(cx);
+      cx.notify();
     });
   }
 
@@ -263,6 +301,6 @@ export default class Devices extends View {
             ]),
           ),
       )
-      .when(Boolean(this.note), (el) => el.child(div().text_color(t.done).child(this.note)));
+      .when(Boolean(this.note), (el) => el.child(div().text_color(this.noteError ? t.blocked : t.done).child(this.note)));
   }
 }

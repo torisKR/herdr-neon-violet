@@ -1,5 +1,6 @@
 // ALL agents — every agent on this herdr server, tiled in one tab.
 // Keys: 1-9 jump to that agent · r refresh · q quit
+//       ctrl+d done · ctrl+w working · ctrl+i idle · ctrl+a all (plain d/w/i/a work too, b = blocked)
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { basename } from "node:path";
@@ -31,6 +32,12 @@ async function tail(paneId, lines) {
 
 let agents = [];
 let error = "";
+let filter = "all"; // all | blocked | working | done | idle
+
+const statusOf = (a) => (a.agent_status in STATE ? a.agent_status : "unknown");
+const shown = () => (filter === "all" ? agents : agents.filter((a) => statusOf(a) === filter));
+// ctrl+d / ctrl+w / ctrl+i (same byte as tab) / ctrl+a, plus the plain letters
+const FILTER_KEYS = { "": "done", d: "done", "": "working", w: "working", "	": "idle", i: "idle", "": "all", a: "all", b: "blocked" };
 
 async function refresh() {
   const [list, ws, tabs] = await Promise.all([api(["agent", "list"]), api(["workspace", "list"]), api(["tab", "list"])]);
@@ -46,8 +53,8 @@ async function refresh() {
       where: `${wsLabel.get(a.workspace_id) || a.workspace_id} / ${tabLabel.get(a.tab_id) || a.tab_id}`,
     }))
     .sort((a, b) => a.state.rank - b.state.rank || a.workspace_id.localeCompare(b.workspace_id));
-  const { body } = geometry(items.length);
-  await Promise.all(items.map(async (a) => { a.lines = cleanLines(await tail(a.pane_id, body + 8)); }));
+  const { rows } = termSize();
+  await Promise.all(items.map(async (a) => { a.lines = cleanLines(await tail(a.pane_id, rows)); }));
   agents = items;
 }
 
@@ -76,27 +83,33 @@ function card(a, idx, w, h) {
 }
 
 function render() {
-  const g = geometry(agents.length);
+  const list = shown();
+  const g = geometry(list.length);
   const counts = Object.fromEntries(Object.keys(STATE).map((k) => [k, 0]));
   for (const a of agents) counts[a.agent_status in STATE ? a.agent_status : "unknown"]++;
-  const summary = ["blocked", "working", "done", "idle"]
-    .map((k) => `${fg(STATE[k].color)}${STATE[k].icon} ${counts[k]} ${STATE[k].label.toLowerCase()}${RESET}${bg(P.bg)}`)
-    .join("   ");
+  const tab = (k, text, color) => (filter === k
+    ? `${bg(color)}${fg(P.bg)}${BOLD} ${text} ${RESET}${bg(P.bg)}`
+    : `${fg(color)} ${text} ${RESET}${bg(P.bg)}`);
+  const summary = [tab("all", `all ${agents.length}`, P.violet)]
+    .concat(["blocked", "working", "done", "idle"].map((k) => tab(k, `${STATE[k].icon} ${counts[k]} ${STATE[k].label.toLowerCase()}`, STATE[k].color)))
+    .join(" ");
   const lines = [];
-  lines.push(` ${fg(P.violet)}${BOLD}◆ ALL agents${RESET}${bg(P.bg)}  ${fg(P.dim)}${agents.length} running${RESET}${bg(P.bg)}   ${summary}`);
+  lines.push(` ${fg(P.violet)}${BOLD}◆ ALL agents${RESET}${bg(P.bg)}  ${summary}`);
   if (error) lines.push(` ${fg(P.pink)}${error}`);
   else if (!agents.length) lines.push(` ${fg(P.dim)}No agents yet. Start claude / codex / gemini in any pane and it shows up here.`);
+  else if (!list.length) lines.push(` ${fg(P.dim)}No ${filter} agents right now. Press ctrl+a to show all.`);
   else {
     for (let r = 0; r < g.nrow; r++) {
-      const row = agents.slice(r * g.ncol, r * g.ncol + g.ncol).map((a, i) => card(a, r * g.ncol + i, g.cardW, g.cardH));
+      const row = list.slice(r * g.ncol, r * g.ncol + g.ncol).map((a, i) => card(a, r * g.ncol + i, g.cardW, g.cardH));
       for (let y = 0; y < g.cardH; y++) lines.push(row.map((c) => c[y]).join(bg(P.bg) + " "));
     }
   }
   while (lines.length < g.rows - 1) lines.push("");
   lines.length = g.rows - 1;
-  const help = `${fg(P.dim)} 1-9 jump to agent   r refresh   q close   ${fg(P.border)}updated ${new Date().toTimeString().slice(0, 8)}`;
+  const help = `${fg(P.dim)} 1-9 jump  ctrl+d done  ctrl+w working  ctrl+i idle  ctrl+a all  b blocked  q close  ${fg(P.border)}${new Date().toTimeString().slice(0, 8)}`;
   lines.push(help);
-  process.stdout.write("\x1b[H" + lines.map((l) => bg(P.bg) + "\x1b[2K" + l + RESET).join("\r\n"));
+  // fit(): a line wider than the pane would wrap and push the header off the top
+  process.stdout.write("\x1b[H" + lines.map((l) => bg(P.bg) + "\x1b[2K" + fit(l, g.cols, " ", bg(P.bg)) + RESET).join("\r\n"));
 }
 
 let busy = false;
@@ -117,8 +130,9 @@ process.stdin.setEncoding("utf8");
 process.stdin.on("data", async (k) => {
   if (k === "q" || k === "\x03") return quit();
   if (k === "r") return tick();
+  if (FILTER_KEYS[k]) { filter = FILTER_KEYS[k]; return render(); }
   if (/^[1-9]$/.test(k)) {
-    const a = agents[Number(k) - 1];
+    const a = shown()[Number(k) - 1];
     if (a) await api(["agent", "focus", a.pane_id]);
   }
 });

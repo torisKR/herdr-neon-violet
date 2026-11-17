@@ -152,7 +152,7 @@ function draw() {
   while (lines.length < rows - 1) lines.push("");
   lines.length = rows - 1;
   lines.push(st.note ? ` ${st.note}` : `${fg(P.dim)} ↑↓ select   enter boot emulator/simulator   y copy id   r refresh   q close`);
-  process.stdout.write("\x1b[H" + lines.map((l) => B + "\x1b[2K" + l + RESET).join("\r\n"));
+  process.stdout.write("\x1b[H" + lines.map((l) => B + "\x1b[2K" + fit(l, cols, " ", B) + RESET).join("\r\n"));
 }
 
 async function boot(r) {

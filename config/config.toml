@@ -81,6 +81,13 @@ type = "plugin_action"
 command = "neon-violet.all_agents"
 description = "ALL agents board"
 
+# Files and pull requests (neon-violet plugin)
+[[keys.command]]
+key = "prefix+f"
+type = "plugin_action"
+command = "neon-violet.files"
+description = "files and pull requests"
+
 # Devices: adb devices, emulators, iOS simulators (neon-violet plugin)
 [[keys.command]]
 key = "prefix+d"

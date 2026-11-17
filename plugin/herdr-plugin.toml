@@ -1,29 +1,51 @@
 id = "neon-violet"
 name = "Neon Violet"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.5"
-description = "ALL agents board, device list and an in-terminal browser for herdr"
+description = "ALL agents board, file explorer with pull requests, device list and a text browser for herdr. One Rust binary."
 platforms = ["linux", "macos", "windows"]
+
+# Gets bin/nv: builds it with cargo when Rust is installed, otherwise downloads the release binary.
+[[build]]
+command = ["sh", "fetch-bin.sh"]
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "fetch-bin.ps1"]
+platforms = ["windows"]
 
 # ALL agents: one tab that shows every running agent at once
 [[actions]]
 id = "all_agents"
 title = "ALL agents board"
 contexts = ["workspace"]
-command = ["node", "open.mjs", "agents"]
+command = ["./bin/nv", "open", "agents"]
 
 [[panes]]
 id = "agents"
 title = "ALL agents"
 placement = "tab"
-command = ["node", "agents-board.mjs"]
+command = ["./bin/nv", "agents"]
+
+# Files: file explorer with a preview, and the repository's pull requests (read, comment, merge)
+[[actions]]
+id = "files"
+title = "Files and pull requests"
+contexts = ["workspace"]
+command = ["./bin/nv", "open", "files"]
+
+[[panes]]
+id = "files"
+title = "Files"
+placement = "tab"
+command = ["./bin/nv", "files"]
 
 # Devices: adb devices, Android emulators, iOS simulators at a glance
 [[actions]]
 id = "devices"
 title = "Devices (adb / emulators / simulators)"
 contexts = ["workspace"]
-command = ["node", "open.mjs", "devices"]
+command = ["./bin/nv", "open", "devices"]
 
 [[panes]]
 id = "devices"
@@ -31,26 +53,26 @@ title = "Devices"
 placement = "popup"
 width = "80%"
 height = "70%"
-command = ["node", "devices.mjs"]
+command = ["./bin/nv", "devices"]
 
 # Browser: text-mode web browser in a split pane (works over SSH)
 [[actions]]
 id = "browse"
 title = "Browser"
 contexts = ["workspace"]
-command = ["node", "open.mjs", "browser"]
+command = ["./bin/nv", "open", "browser"]
 
 [[actions]]
 id = "open_link"
 title = "Open link in the herdr browser"
 contexts = ["workspace"]
-command = ["node", "open.mjs", "browser"]
+command = ["./bin/nv", "open", "browser"]
 
 [[panes]]
 id = "browser"
 title = "Browser"
 placement = "split"
-command = ["node", "browse.mjs"]
+command = ["./bin/nv", "browse"]
 
 # Ctrl+click on a localhost / 127.0.0.1 link opens it inside herdr, on the
 # machine where the pane runs (the dev server lives there, not on your laptop).

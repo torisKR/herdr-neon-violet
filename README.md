@@ -14,6 +14,7 @@ A neon-violet theme and plugin pack for [herdr](https://herdr.dev), the terminal
 | ALL agents | `prefix` `a` | Every running agent tiled in one tab |
 | Devices | `prefix` `d` | adb devices, Android emulators, and iOS simulators in one list |
 | Browser | `prefix` `u` | Read web pages inside the terminal, including over SSH |
+| Files and pull requests | `prefix` `f` | A file tree with a preview, and the repository's pull requests: read, comment, merge |
 | Agent switching | `prefix` `,` / `prefix` `.` | Jump to the previous / next agent |
 | Copy over SSH | drag | Drag text in a remote pane and it lands on your own clipboard |
 
@@ -37,7 +38,7 @@ A neon-violet theme and plugin pack for [herdr](https://herdr.dev), the terminal
 
 ## Install
 
-Requires herdr 0.9.5 or later and Node.js 18 or later.
+Requires herdr 0.9.5 or later. The tools are one small Rust binary, `nv`: the installer builds it when Rust is installed and downloads a prebuilt one otherwise. Pull requests need the GitHub CLI (`gh`).
 
 **macOS / Linux**
 
@@ -87,6 +88,13 @@ The same pack for the Herdr desktop app is in `app/`. The installers copy it int
 | Layout `all-agents` | `ctrl+shift+a` | Every agent's live terminal in one grid, most urgent first. `ctrl+shift+l` switches layouts back |
 | Devices | `ctrl+shift+d` | Devices, emulators and simulators of this computer and of every connected machine. Click a stopped one to boot it |
 | Browser | `ctrl+shift+u` | Opens the text browser in a split on the right |
+| Layout `neon-violet` | `ctrl+shift+l` | The main layout with a blurred, translucent window and the to-do list |
+| Pull requests | `ctrl+shift+g` | Open pull requests of the repository you are in: description, changed files, comments. Comment and merge from the panel |
+| To-do | | A floating list at the top right of what you asked your agents to do |
+
+In the `neon-violet` layout the `+` button at the top right also lists these tools (ALL agents, Devices, Pull requests, Browser), and a file clicked in the Files panel opens in the main area as an editor tab: syntax highlighting, line numbers, folding, editing with `ctrl+s` to save, and a rendered preview for Markdown. Files on another machine open read-only. Mermaid diagrams are shown as source, not drawn.
+
+On macOS every shortcut of this pack uses `cmd` where this page says `ctrl`. Where `cmd+shift+d` is already taken (it splits the pane), Devices is on `cmd+shift+m`.
 
 In the `all-agents` layout:
 
@@ -115,6 +123,34 @@ The config sets `copy_on_select = true`, so dragging over text in herdr copies i
 - Filter by state: `ctrl+d` done, `ctrl+w` working, `ctrl+i` idle, `ctrl+a` all. The plain letters `d`, `w`, `i`, `a` work too, and `b` shows blocked agents.
 - Press `1`–`9` to jump to that agent's pane. Press `q` to close.
 - The board shows the agents of the herdr server it runs on. Agents on other machines appear in the sidebar.
+
+## Files and pull requests
+
+`prefix` `f` opens a tab rooted at the folder of the pane you were in. The mouse works: click a row, scroll either side.
+
+| Key | Files | Pull requests |
+| --- | --- | --- |
+| `↑` `↓` / `j` `k` | Move | Move |
+| `enter` or click | Open a file, expand a folder | Open the pull request |
+| `←` | Collapse, or go to the parent folder | |
+| `space` / `b` | Scroll the preview | Scroll the pull request |
+| `c` | | Write a comment |
+| `m` | | Merge. It asks first: `y` merges, `s` switches between squash, merge and rebase |
+| `o` | | Open on GitHub |
+| `y` | Copy the path | |
+| `tab` | Switch to pull requests | Switch to files |
+
+The Herdr desktop app already has a file explorer (the Files button at the top right), so this pack adds only the pull request panel there.
+
+## To-do list
+
+The Herdr app shows a floating list at the top right. Each instruction you give Claude Code or Codex becomes an item, and the item is checked when that turn ends, with a notification. You can add, check and remove items yourself, and the list includes every connected machine.
+
+- Turn it on for your agents once per machine: `~/.config/herdr-app/bin/nv todo hooks install`. It adds two hooks (prompt submitted, turn ended) to Claude Code's `settings.json` and Codex's `hooks.json`, keeps the hooks you already have, and writes a backup. `nv todo hooks remove` takes them out.
+- `↔` and `↕` change the width and height, `–` folds it, and you can drag it anywhere.
+- From a shell: `nv todo add "text"`, `nv todo done <id>`, `nv todo list`.
+
+Each row shows a short headline, and clicking it opens the details: the whole instruction, where it runs, when it started and finished, and a button that takes you to the agent. The headline appears at once from simple rules and is replaced a few seconds later by one written by a small model (Claude Haiku, a separate headless call that uses a few hundred tokens per instruction and adds nothing to the agent's own conversation). Set `NV_TODO_NO_SUMMARY=1` to keep the rule-based headlines and spend no tokens.
 
 ## Devices
 
@@ -147,7 +183,7 @@ This is a text browser, so pages drawn by JavaScript can look empty. It suits re
 
 ## Tested on
 
-- Windows 11, herdr 0.9.5, Node.js 26: the theme and the three panes (ALL agents, Devices, Browser) were run and checked.
+- Windows 11, herdr 0.9.5, nv 0.2 (Rust): the theme and the three panes (ALL agents, Devices, Browser) were run and checked.
 - Herdr desktop app on Windows 11: the theme, the `all-agents` layout with its filters, and Devices were run in the app. Devices listed real Android devices, emulators and iOS simulators from a connected Mac.
 - The terminal plugin's Devices pane was checked against the sample output in `demo/fixtures`; the same commands return that format on a real Mac. The pack has not been installed on macOS itself yet. Please open an issue if something is off.
 

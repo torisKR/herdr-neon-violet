@@ -14,6 +14,7 @@ Un thème violet néon et un ensemble de plugins pour [herdr](https://herdr.dev)
 | ALL agents | `prefix` `a` | Tous les agents en cours d'exécution, en mosaïque dans un seul onglet |
 | Devices | `prefix` `d` | Appareils adb, émulateurs Android et simulateurs iOS dans une seule liste |
 | Navigateur | `prefix` `u` | Lire des pages web dans le terminal, y compris via SSH |
+| Fichiers et pull requests | `prefix` `f` | Une arborescence de fichiers avec aperçu, et les pull requests du dépôt : lire, commenter, fusionner |
 | Changer d'agent | `prefix` `,` / `prefix` `.` | Passer à l'agent précédent / suivant |
 | Copie via SSH | glisser | Faites glisser sur du texte dans un panneau distant : il arrive dans votre propre presse-papiers |
 
@@ -37,7 +38,7 @@ Un thème violet néon et un ensemble de plugins pour [herdr](https://herdr.dev)
 
 ## Installation
 
-Nécessite herdr 0.9.5 ou plus récent et Node.js 18 ou plus récent.
+Nécessite herdr 0.9.5 ou plus récent. Les outils tiennent dans un petit binaire Rust, `nv` : le script d'installation le compile si Rust est installé et télécharge sinon une version précompilée. Les pull requests demandent le GitHub CLI (`gh`).
 
 **macOS / Linux**
 
@@ -87,6 +88,13 @@ Le même ensemble pour l'application de bureau Herdr se trouve dans `app/`. Si l
 | Disposition `all-agents` | `ctrl+shift+a` | Le terminal en direct de chaque agent dans une seule grille, les plus urgents d'abord. `ctrl+shift+l` revient aux autres dispositions |
 | Devices | `ctrl+shift+d` | Appareils, émulateurs et simulateurs de cet ordinateur et de toutes les machines connectées. Cliquez sur un élément arrêté pour le démarrer |
 | Navigateur | `ctrl+shift+u` | Ouvre le navigateur en mode texte dans un panneau à droite |
+| Disposition `neon-violet` | `ctrl+shift+l` | La disposition principale avec une fenêtre floutée et translucide et la liste de tâches |
+| Pull requests | `ctrl+shift+g` | Les pull requests ouvertes du dépôt où vous êtes : description, fichiers modifiés, commentaires. Commentez et fusionnez depuis le panneau |
+| To-do | | Une liste flottante en haut à droite de ce que vous avez demandé à vos agents |
+
+Dans la disposition `neon-violet`, le bouton `+` en haut à droite liste aussi ces outils (ALL agents, Devices, Pull requests, Browser), et un fichier cliqué dans le panneau Files s'ouvre dans la zone principale comme onglet d'éditeur : coloration syntaxique, numéros de ligne, pliage, édition avec `ctrl+s` pour enregistrer, et aperçu rendu pour le Markdown. Les fichiers d'une autre machine s'ouvrent en lecture seule. Les diagrammes Mermaid sont affichés sous forme de source, sans être dessinés.
+
+Sur macOS, tous les raccourcis de ce pack utilisent `cmd` là où cette page indique `ctrl`. Si `cmd+shift+d` est déjà pris (il divise le panneau), Devices est sur `cmd+shift+m`.
 
 Dans la disposition `all-agents` :
 
@@ -115,6 +123,34 @@ La configuration définit `copy_on_select = true` : faire glisser sur du texte d
 - Filtrer par état : `ctrl+d` terminés, `ctrl+w` en cours, `ctrl+i` inactifs, `ctrl+a` tous. Les lettres seules `d`, `w`, `i`, `a` fonctionnent aussi, et `b` montre les agents bloqués.
 - Appuyez sur `1`–`9` pour aller au panneau de cet agent, et sur `q` pour fermer.
 - Le tableau montre les agents du serveur herdr sur lequel il tourne. Les agents des autres machines apparaissent dans la barre latérale.
+
+## Fichiers et pull requests
+
+`prefix` `f` ouvre un onglet dont la racine est le dossier du panneau où vous étiez. La souris fonctionne : cliquez sur une ligne, faites défiler chaque côté.
+
+| Touche | Fichiers | Pull requests |
+| --- | --- | --- |
+| `↑` `↓` / `j` `k` | Se déplacer | Se déplacer |
+| `enter` ou clic | Ouvrir un fichier, déplier un dossier | Ouvrir la pull request |
+| `←` | Replier, ou aller au dossier parent | |
+| `space` / `b` | Faire défiler l'aperçu | Faire défiler la pull request |
+| `c` | | Écrire un commentaire |
+| `m` | | Fusionner. Une confirmation est demandée : `y` fusionne, `s` alterne entre squash, merge et rebase |
+| `o` | | Ouvrir sur GitHub |
+| `y` | Copier le chemin | |
+| `tab` | Passer aux pull requests | Passer aux fichiers |
+
+L'application de bureau Herdr a déjà un explorateur de fichiers (bouton Files en haut à droite) ; ce pack n'y ajoute donc que le panneau des pull requests.
+
+## Liste de tâches
+
+L'application Herdr affiche une liste flottante en haut à droite. Chaque instruction donnée à Claude Code ou à Codex devient une tâche, cochée à la fin du tour avec une notification. Vous pouvez aussi ajouter, cocher et supprimer des tâches vous-même, et la liste couvre toutes les machines connectées.
+
+- Activez-la une fois par machine : `~/.config/herdr-app/bin/nv todo hooks install`. La commande ajoute deux hooks (instruction envoyée, tour terminé) au `settings.json` de Claude Code et au `hooks.json` de Codex, conserve vos hooks existants et écrit une sauvegarde. `nv todo hooks remove` les retire.
+- `↔` et `↕` changent la largeur et la hauteur, `–` replie la liste, et vous pouvez la faire glisser où vous voulez.
+- Depuis un shell : `nv todo add "texte"`, `nv todo done <id>`, `nv todo list`.
+
+Chaque ligne affiche un titre court ; un clic ouvre le détail : l'instruction entière, l'endroit où elle s'exécute, les heures de début et de fin, et un bouton qui mène à l'agent. Le titre apparaît tout de suite à partir de règles simples, puis il est remplacé quelques secondes plus tard par un titre écrit par un petit modèle (Claude Haiku, un appel séparé sans interface qui consomme quelques centaines de tokens par instruction et n'ajoute rien à la conversation de l'agent). Définissez `NV_TODO_NO_SUMMARY=1` pour garder les titres par règles et ne dépenser aucun token.
 
 ## Devices
 
@@ -147,7 +183,7 @@ Un `ctrl`+clic sur un lien `http://localhost:<port>` dans un panneau l'ouvre dan
 
 ## Environnement testé
 
-- Windows 11, herdr 0.9.5, Node.js 26 : le thème et les trois panneaux (ALL agents, Devices, Navigateur) ont été lancés et vérifiés.
+- Windows 11, herdr 0.9.5, nv 0.2 (Rust) : le thème et les trois panneaux (ALL agents, Devices, Navigateur) ont été lancés et vérifiés.
 - Application de bureau Herdr sous Windows 11 : le thème, la disposition `all-agents` avec ses filtres et Devices ont été lancés dans l'application. Devices a listé de vrais appareils Android, émulateurs et simulateurs iOS d'un Mac connecté.
 - Le panneau Devices du plugin terminal a été vérifié avec les sorties d'exemple de `demo/fixtures` ; les mêmes commandes renvoient ce format sur un vrai Mac. L'ensemble n'a pas encore été installé sur macOS lui-même. Ouvrez une issue si quelque chose ne va pas.
 

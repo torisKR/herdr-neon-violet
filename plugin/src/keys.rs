@@ -53,13 +53,18 @@ pub fn main(args: &[String]) -> i32 {
             let slot = root.entry(section.clone()).or_insert_with(|| Value::Object(Map::new()));
             let (Some(slot), Some(binds)) = (slot.as_object_mut(), binds.as_object()) else { continue };
             for (key, action) in binds {
+                // The additions are written with ctrl; on macOS the same shortcuts use Command.
+                let name = if cfg!(target_os = "macos") { key.replace("ctrl-", "cmd-") } else { key.clone() };
+                if name != *key && slot.get(key) == Some(action) {
+                    slot.remove(key); // an earlier version installed it under the ctrl name on macOS
+                }
                 // An older version of this pack bound the browser to a Node script that no longer exists.
-                let stale = slot.get(key).map(|c| c.to_string().contains("browse.mjs")).unwrap_or(false);
-                match slot.get(key) {
-                    Some(current) if current != action && !stale => kept.push(format!("{section} {key}")),
+                let stale = slot.get(&name).map(|c| c.to_string().contains("browse.mjs")).unwrap_or(false);
+                match slot.get(&name) {
+                    Some(current) if current != action && !stale => kept.push(format!("{section} {name}")),
                     _ => {
-                        slot.insert(key.clone(), action.clone());
-                        added.push(format!("{section} {key}"));
+                        slot.insert(name.clone(), action.clone());
+                        added.push(format!("{section} {name}"));
                     }
                 }
             }

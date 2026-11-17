@@ -1,0 +1,4 @@
+{"devices":{"com.apple.CoreSimulator.SimRuntime.iOS-18-2":[
+{"name":"iPhone 16 Pro","udid":"7B1E2C34-0A5D-4E6F-9A8B-1C2D3E4F5A6B","state":"Booted","isAvailable":true},
+{"name":"iPhone 16","udid":"1A2B3C4D-5E6F-4A7B-8C9D-0E1F2A3B4C5D","state":"Shutdown","isAvailable":true},
+{"name":"iPad Air 11-inch (M2)","udid":"9F8E7D6C-5B4A-4321-8FED-CBA987654321","state":"Shutdown","isAvailable":true}]}}

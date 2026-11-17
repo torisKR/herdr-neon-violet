@@ -188,6 +188,46 @@ fn str_of<'a>(v: &'a Value, k: &str) -> &'a str {
     v.get(k).and_then(|x| x.as_str()).unwrap_or("")
 }
 
+fn inferred_priority(item: &Value) -> u64 {
+    let detail = str_of(item, "detail");
+    let text = if detail.is_empty() { str_of(item, "text") } else { detail }.to_lowercase();
+    let contains = |needle: &str| {
+        if needle.is_ascii() {
+            text.match_indices(needle).any(|(start, _)| {
+                let end = start + needle.len();
+                !text[..start].ends_with(|c: char| c.is_ascii_alphanumeric())
+                    && !text[end..].starts_with(|c: char| c.is_ascii_alphanumeric())
+            })
+        } else {
+            text.contains(needle)
+        }
+    };
+    if ["긴급", "최우선", "장애", "데이터 유실", "데이터 손실", "urgent", "critical", "asap", "p0", "production down", "data loss", "緊急", "至急", "障害", "紧急", "故障", "数据丢失"].iter().any(|word| contains(word)) {
+        0
+    } else if ["중요", "우선 처리", "버그", "오류", "실패", "안됨", "안 돼", "보안", "결제", "로그인", "bug", "fix", "broken", "error", "security", "payment", "重要", "不具合", "エラー", "错误", "修复", "安全"].iter().any(|word| contains(word)) {
+        1
+    } else if ["나중", "여유", "선택 사항", "optional", "nice to have", "eventually", "low priority", "低優先", "任意", "以后", "可选"].iter().any(|word| contains(word)) {
+        3
+    } else {
+        2
+    }
+}
+
+fn priority_override(item: &Value) -> Option<u64> {
+    item.get("priority").and_then(Value::as_u64).filter(|p| *p <= 3)
+}
+
+fn parse_priority(value: &str) -> Result<Option<u64>, String> {
+    match value {
+        "auto" => Ok(None),
+        "urgent" | "p0" | "0" => Ok(Some(0)),
+        "high" | "p1" | "1" => Ok(Some(1)),
+        "normal" | "p2" | "2" => Ok(Some(2)),
+        "low" | "p3" | "3" => Ok(Some(3)),
+        _ => Err("usage: nv todo priority <id> <urgent|high|normal|low|auto>".into()),
+    }
+}
+
 fn same_dir(a: &str, b: &str) -> bool {
     let norm = |s: &str| s.replace('\\', "/").trim_end_matches('/').to_lowercase();
     !a.is_empty() && norm(a) == norm(b)
@@ -441,7 +481,7 @@ pub fn main(args: &[String]) -> i32 {
     let o = parse(args.get(1..).unwrap_or(&[]));
     let result: Result<(), String> = (|| {
         // Summarization waits for a model and acquires its own lock only to save.
-        let _lock = if matches!(sub, "add" | "done" | "undone" | "toggle" | "rm" | "title" | "clear-done") {
+        let _lock = if matches!(sub, "add" | "done" | "undone" | "toggle" | "rm" | "title" | "priority" | "clear-done") {
             Some(lock_store()?)
         } else {
             None
@@ -449,14 +489,19 @@ pub fn main(args: &[String]) -> i32 {
         match sub {
             "path" => println!("{}", store_path().display()),
             "list" => {
-                let items = load()?;
+                let mut items = load()?;
+                for item in &mut items {
+                    let manual = priority_override(item);
+                    item["priority"] = json!(manual.unwrap_or_else(|| inferred_priority(item)));
+                    item["priority_auto"] = json!(manual.is_none());
+                }
                 if o.json {
                     println!("{}", json!({ "version": 1, "items": items }));
                 } else if items.is_empty() {
                     println!("no to-dos");
                 } else {
                     for it in &items {
-                        println!("[{}] {}  {}  ({})", if it["done"] == json!(true) { "x" } else { " " }, str_of(it, "id"), str_of(it, "text"), str_of(it, "source"));
+                        println!("[{}] P{} {}  {}  ({})", if it["done"] == json!(true) { "x" } else { " " }, it["priority"], str_of(it, "id"), str_of(it, "text"), str_of(it, "source"));
                     }
                 }
             }
@@ -513,6 +558,21 @@ pub fn main(args: &[String]) -> i32 {
                 }
                 save(&items)?;
             }
+            "priority" => {
+                if o.rest.len() != 2 {
+                    return Err("usage: nv todo priority <id> <urgent|high|normal|low|auto>".into());
+                }
+                let priority = parse_priority(&o.rest[1])?;
+                let mut items = load()?;
+                let item = items.iter_mut().find(|it| str_of(it, "id") == o.rest[0])
+                    .ok_or_else(|| format!("no to-do with id '{}'", o.rest[0]))?;
+                if let Some(priority) = priority {
+                    item["priority"] = json!(priority);
+                } else {
+                    item.as_object_mut().unwrap().remove("priority");
+                }
+                save(&items)?;
+            }
             "clear-done" => {
                 let mut items = load()?;
                 items.retain(|it| it["done"] != json!(true));
@@ -528,7 +588,7 @@ pub fn main(args: &[String]) -> i32 {
                 Some("remove") => install_hooks(true)?,
                 _ => return Err("usage: nv todo hooks <install|remove>".into()),
             },
-            _ => return Err("usage: nv todo <list|add|done|undone|toggle|rm|clear-done|path|hooks install|hooks remove>".into()),
+            _ => return Err("usage: nv todo <list|add|done|undone|toggle|rm|priority|clear-done|path|hooks install|hooks remove>".into()),
         }
         Ok(())
     })();

@@ -14,7 +14,7 @@ const sha = "a".repeat(40), newerSha = "b".repeat(40);
 const pr = number => ({ number, state: "OPEN", mergeable: "MERGEABLE", headRefOid: sha, isDraft: false });
 
 function element() {
-  const data = { items: [], events: {} };
+  const data = { items: [], events: {}, styles: {} };
   let proxy;
   proxy = new Proxy(data, { get(target, key) {
     if (key in target) return target[key];
@@ -23,7 +23,7 @@ function element() {
     if (key === "children") return children => { data.items.push(...children); return proxy; };
     if (key === "when") return (condition, fn) => condition ? fn(proxy) : proxy;
     if (key.startsWith("on_")) return fn => { data.events[key] = fn; return proxy; };
-    return () => proxy;
+    return (...args) => { data.styles[key] = args; return proxy; };
   } });
   return proxy;
 }
@@ -32,7 +32,7 @@ const find = (node, id) => node && typeof node === "object"
 const textOf = node => typeof node === "string" ? node : node?.items?.map(textOf).join("\n") ?? "";
 
 function harness(name, overrides = {}, storage = new Map()) {
-  const tasks = [], failures = [], calls = [], overlays = [];
+  const tasks = [], failures = [], calls = [], overlays = [], scrolls = [];
   const cx = {
     notify() {}, stop_propagation() {},
     focus_handle: () => ({ focus() {} }), timer: { every() {} },
@@ -66,7 +66,7 @@ function harness(name, overrides = {}, storage = new Map()) {
     "gpui-kit": { View: class {}, div: element, svg: element, image: element },
     "gpui-base": { h_flex: element, v_flex: element, EditorState: { new: options => new State(options) },
       InputState: { new: options => new State(options) }, Editor: { new: element }, Input: { new: element },
-      TextView: { markdown: element }, ScrollHandle: { new: () => ({ scroll_to_item() {} }) } },
+      TextView: { markdown: element }, ScrollHandle: { new: () => ({ scroll_to_item(index) { scrolls.push(index); } }) } },
     herdr: native,
   };
   const source = readFileSync(new URL(`../mods/${name}/main.js`, import.meta.url), "utf8")
@@ -79,7 +79,7 @@ function harness(name, overrides = {}, storage = new Map()) {
   vm.runInNewContext(source, sandbox, { filename: `app/mods/${name}/main.js` });
   const view = new sandbox.Mod();
   view.init({}, cx);
-  return { view, cx, calls, overlays, native, async settle() {
+  return { view, cx, calls, overlays, native, scrolls, async settle() {
     for (let i = 0; i < 30; i++) await Promise.resolve();
     assert.deepEqual(failures, []);
   } };
@@ -183,6 +183,69 @@ test("To-do language selection remains available while folded and does not chang
     { args: ["clear-done"], on: "remote" },
     { args: ["add", "--source", "me", "日本語で入力"], on: null },
   ]);
+});
+
+test("long To-do lists retain row height and let the native scroll handle reach either end", async () => {
+  const items = Array.from({ length: 50 }, (_, n) => ({ id: String(n), text: `task ${n}`, source: "me", created: 1000 - n, done: false }));
+  const h = harness("todos", { machines: () => [], exec: async () => ok({ items }) });
+  h.view.refresh(h.cx); await h.settle();
+  const tree = h.view.render(), viewport = find(tree, "todos-list");
+  assert.equal(viewport.items.length, 50);
+  assert.ok(viewport.styles.h[0] < viewport.items.reduce((height, row) => height + row.styles.h[0], 0));
+  assert.ok(viewport.items.every(row => Object.hasOwn(row.styles, "flex_none")));
+  find(tree, "todos-bottom").events.on_click({}, h.cx);
+  find(tree, "todos-top").events.on_click({}, h.cx);
+  assert.deepEqual(h.scrolls, [49, 0]);
+  h.view.refresh(h.cx); await h.settle();
+  assert.deepEqual(h.scrolls, [49, 0], "background polling must not reset the person's scroll position");
+});
+
+test("To-do sorts open tasks by priority, highlights important work and keeps completed tasks last", async () => {
+  const items = [
+    { id: "low", priority: 3, created: 1000 }, { id: "normal", created: 100 },
+    { id: "high", priority: 1, created: 10 }, { id: "urgent-old", priority: 0, created: 1 },
+    { id: "urgent-new", priority: 0, created: 2 }, { id: "done", priority: 0, created: 2000, done: true, done_at: 3000 },
+  ].map(item => ({ text: item.id, source: "me", ...item }));
+  const h = harness("todos", {
+    machines: () => [], theme: () => ({ blocked: "urgent-color", working: "high-color" }), exec: async () => ok({ items }),
+  });
+  h.view.refresh(h.cx); await h.settle();
+  assert.deepEqual(plain(h.view.items.map(item => item.id)), ["urgent-new", "urgent-old", "high", "normal", "low", "done"]);
+  const tree = h.view.render();
+  assert.equal(textOf(find(tree, "todo-priority-local-urgent-new")), "P0");
+  assert.equal(find(tree, "todo-priority-local-urgent-new").styles.text_color[0], "urgent-color");
+  assert.ok(Object.hasOwn(find(tree, "todo-local-high").styles, "border_l"));
+  assert.ok(!Object.hasOwn(find(tree, "todo-local-done").styles, "border_l"));
+});
+
+test("To-do priority controls target the source machine and allow returning to automatic priority", () => {
+  const h = harness("todos", { settings: () => ({ language: "ko" }) });
+  h.view.items = [{ id: "one", text: "keep instruction", source: "me", priority: 2, priority_auto: true, on: "remote", created: 1 }];
+  h.view.open = "remote-one";
+  const changes = [];
+  h.view.change = (_cx, args, on) => changes.push(plain({ args, on }));
+  const tree = h.view.render();
+  find(tree, "todo-priority-remote-one").events.on_click({}, h.cx);
+  find(tree, "todo-priority-remote-one-0").events.on_click({}, h.cx);
+  find(tree, "todo-priority-remote-one-auto").events.on_click({}, h.cx);
+  assert.deepEqual(changes, [
+    { args: ["priority", "one", "1"], on: "remote" },
+    { args: ["priority", "one", "0"], on: "remote" },
+    { args: ["priority", "one", "auto"], on: "remote" },
+  ]);
+  assert.ok(textOf(tree).includes("긴급"));
+  assert.equal(h.view.items[0].text, "keep instruction");
+});
+
+test("a failed priority update reports the remote error and preserves the displayed task", async () => {
+  const notifications = [];
+  const h = harness("todos", { settings: () => ({ language: "ko" }), machines: () => [], notify: value => notifications.push(value) });
+  h.view.items = [{ id: "one", text: "keep", priority: 2, created: 1 }];
+  h.view.nv = async () => ({ code: 1, stdout: "", stderr: "update nv on remote" });
+  h.view.refresh = () => {};
+  h.view.change(h.cx, ["priority", "one", "0"], "remote"); await h.settle();
+  assert.equal(h.view.items[0].priority, 2);
+  assert.deepEqual(plain(notifications), [{ title: "할 일을 변경하지 못했습니다", body: "update nv on remote", level: "error" }]);
 });
 
 function editor(overrides) {

@@ -9,11 +9,14 @@
 // in a window on another computer.
 
 import { View, div } from "gpui-kit";
-import { h_flex, v_flex, InputState, Input } from "gpui-base";
+import { h_flex, v_flex, InputState, Input, ScrollHandle } from "gpui-base";
 import { appHome, checking, exec, machines, nextCommand, notify, panes, run, settings, theme, window as win } from "herdr";
 
 const WIDTHS = [260, 340, 440, 560];
 const HEIGHTS = [160, 280, 420, 600];
+const priority = (item) => Number.isInteger(item.priority) && item.priority >= 0 && item.priority <= 3 ? item.priority : 2;
+const compare = (a, b) => Number(Boolean(a.done)) - Number(Boolean(b.done))
+  || (a.done ? (b.done_at ?? b.created) - (a.done_at ?? a.created) : priority(a) - priority(b) || b.created - a.created);
 const LANGUAGES = { ko: "한국어", en: "English", ja: "日本語", zh: "中文" };
 const language = (value) => {
   const code = String(value ?? "").trim().toLowerCase().split(/[-_]/)[0];
@@ -30,6 +33,7 @@ const TEXT = {
     finished: (start, end, duration) => `${start} → ${end} · took ${duration}`,
     started: (start, duration) => `started ${start} · ${duration} so far`,
     units: ["s", "m", "h"],
+    priority: "Priority", priorities: ["Urgent", "High", "Normal", "Low"], autoPriority: "Auto", failed: "Could not update to-do",
   },
   ko: {
     title: "할 일", add: "할 일 추가", completed: "할 일 완료",
@@ -41,6 +45,7 @@ const TEXT = {
     finished: (start, end, duration) => `${start} → ${end} · ${duration} 소요`,
     started: (start, duration) => `${start} 시작 · ${duration} 경과`,
     units: ["초", "분", "시간"],
+    priority: "우선순위", priorities: ["긴급", "높음", "보통", "낮음"], autoPriority: "자동", failed: "할 일을 변경하지 못했습니다",
   },
   ja: {
     title: "やること", add: "やることを追加", completed: "やることが完了",
@@ -52,6 +57,7 @@ const TEXT = {
     finished: (start, end, duration) => `${start} → ${end} · 所要時間 ${duration}`,
     started: (start, duration) => `${start} 開始 · ${duration} 経過`,
     units: ["秒", "分", "時間"],
+    priority: "優先度", priorities: ["緊急", "高", "通常", "低"], autoPriority: "自動", failed: "やることを更新できませんでした",
   },
   zh: {
     title: "待办", add: "添加待办事项", completed: "待办已完成",
@@ -63,6 +69,7 @@ const TEXT = {
     finished: (start, end, duration) => `${start} → ${end} · 用时 ${duration}`,
     started: (start, duration) => `${start} 开始 · 已过 ${duration}`,
     units: ["秒", "分", "小时"],
+    priority: "优先级", priorities: ["紧急", "高", "普通", "低"], autoPriority: "自动", failed: "无法更新待办事项",
   },
 };
 const quote = (a) => `'${String(a).replace(/'/g, `'\\''`)}'`;
@@ -99,6 +106,7 @@ export default class Todos extends View {
     this.collapsed = localStorage.getItem("collapsed") === "1";
     this.language = language(localStorage.getItem("language")) ?? "auto";
     this.languageMenu = false;
+    this.scroll = ScrollHandle.new();
     this.input = InputState.new();
     this.input.on("change", (_e, cx) => { this.text = this.input.value(); cx.notify(); });
     this.input.on("submit", (_e, cx) => this.add(cx));
@@ -118,6 +126,8 @@ export default class Todos extends View {
         } else if (command === "fold") {
           this.collapsed = !this.collapsed;
           localStorage.setItem("collapsed", this.collapsed ? "1" : "0");
+        } else if (command === "top" || command === "bottom") {
+          this.jump(command === "bottom", cx);
         }
         cx.notify();
       }
@@ -172,7 +182,7 @@ export default class Todos extends View {
           }
         }
         this.known = new Map(items.map((it) => [`${it.on}/${it.id}`, Boolean(it.done)]));
-        this.items = items.sort((a, b) => Number(a.done) - Number(b.done) || (b.done ? b.done_at - a.done_at : b.created - a.created));
+        this.items = items.sort(compare);
       } finally {
         this.loading = false;
         cx.notify();
@@ -182,9 +192,23 @@ export default class Todos extends View {
 
   change(cx, args, on) {
     cx.spawn(async (cx) => {
-      try { await this.nv(args, on); } catch {}
+      try {
+        const result = await this.nv(args, on);
+        if (result.code !== 0) throw new Error(result.stderr || result.stdout);
+      } catch (error) {
+        notify({ title: TEXT[this.locale()].failed, body: String(error.message ?? error), level: "error" });
+      }
       this.refresh(cx);
     });
+  }
+
+  jump(bottom, cx) {
+    if (this.items.length) this.scroll.scroll_to_item(bottom ? this.items.length - 1 : 0);
+    cx.notify();
+  }
+
+  priorityColor(it, t) {
+    return it.done ? t.dim : [t.blocked, t.working, t.muted, t.dim][priority(it)];
   }
 
   add(cx) {
@@ -209,7 +233,7 @@ export default class Todos extends View {
   }
 
   chip(id, text, t, onClick, color) {
-    return div().id(id).px(6).py(1).rounded(5).text_size(11).text_color(color ?? t.muted).cursor_pointer()
+    return div().id(id).flex_none().px(6).py(1).rounded(5).text_size(11).text_color(color ?? t.muted).cursor_pointer()
       .hover((s) => s.bg(t.hover).text_color(t.foreground))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { cx.stop_propagation(); onClick(cx); })
@@ -224,13 +248,20 @@ export default class Todos extends View {
       ? l.finished(clock(it.created), clock(it.done_at), span(it.done_at - it.created, l))
       : l.started(clock(it.created), span(Date.now() / 1000 - it.created, l));
     const full = it.detail && it.detail !== it.text ? it.detail : it.text;
-    return v_flex().mx(6).mb(4).p(8).gap(6).rounded(6).bg(t.surface).border_1().border_color(t.border)
+    return v_flex().flex_none().mx(6).mb(4).p(8).gap(6).rounded(6).bg(t.surface).border_1().border_color(t.border)
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-      .child(div().id(`todo-full-${key}`).max_h(180).overflow_y_scrollbar().text_size(12).text_color(t.foreground).child(full))
+      .child(div().id(`todo-full-${key}`).flex_none().max_h(180).overflow_y_scrollbar().text_size(12).text_color(t.foreground).child(full))
       .child(v_flex().gap(2).text_size(10).text_color(t.dim)
         .child(div().child(`${it.source === "me" ? l.added : l.asked(it.source)}${it.on ? l.on(it.on) : ""}${folder ? ` · ${folder}` : ""}`))
         .child(div().child(when))
         .when(Boolean(pane?.title), (e) => e.child(div().truncate().child(l.agent(pane.title)))))
+      .child(v_flex().flex_none().gap(3)
+        .child(div().text_size(10).text_color(t.muted).child(l.priority))
+        .child(h_flex().flex_wrap().gap(3)
+          .children(l.priorities.map((label, p) => this.chip(`todo-priority-${key}-${p}`, `${priority(it) === p ? "✓ " : ""}P${p} ${label}`, t,
+            (cx) => this.change(cx, ["priority", it.id, String(p)], it.on), priority(it) === p ? this.priorityColor(it, t) : t.muted)))
+          .child(this.chip(`todo-priority-${key}-auto`, `${it.priority_auto !== false ? "✓ " : ""}${l.autoPriority}`, t,
+            (cx) => this.change(cx, ["priority", it.id, "auto"], it.on)))))
       .child(h_flex().gap(4)
         .when(Boolean(pane), (e) => e.child(this.chip(`todo-go-${key}`, l.go, t, () => run("agent.focus", { terminal: pane.terminal }), t.accent)))
         .child(this.chip(`todo-toggle-${key}`, it.done ? l.reopen : l.done, t, (cx) => this.change(cx, ["toggle", it.id], it.on), it.done ? t.muted : t.done))
@@ -243,7 +274,9 @@ export default class Todos extends View {
     const key = `${it.on ?? "local"}-${it.id}`;
     const color = it.source === "claude" ? t.accent : it.source === "codex" ? t.idle : t.muted;
     const opened = this.open === key;
-    const line = h_flex().id(`todo-${key}`).gap(8).px(6).py(4).rounded(6).items_center().cursor_pointer()
+    const important = !it.done && priority(it) < 2;
+    const line = h_flex().id(`todo-${key}`).flex_none().h(30).gap(6).px(6).py(4).rounded(6).items_center().cursor_pointer()
+      .when(important, (e) => e.border_l(2).border_color(this.priorityColor(it, t)))
       .when(opened, (e) => e.bg(t.selected)).hover((s) => s.bg(t.hover))
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .on_click((_e, cx) => { this.open = opened ? null : key; cx.notify(); })
@@ -254,10 +287,13 @@ export default class Todos extends View {
         .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
         .on_click((_e, cx) => { cx.stop_propagation(); this.change(cx, ["toggle", it.id], it.on); })
         .child(it.done ? "✓" : ""))
-      .child(div().flex_1().min_w(0).truncate().text_color(it.done ? t.dim : t.foreground).child(it.text))
-      .child(div().flex_none().text_size(10).text_color(color).child(it.on ? `${source} · ${it.on}` : source))
+      .child(this.chip(`todo-priority-${key}`, `P${priority(it)}`, t,
+        (cx) => this.change(cx, ["priority", it.id, String((priority(it) + 3) % 4)], it.on), this.priorityColor(it, t)))
+      .child(div().flex_1().min_w(0).truncate().when(important, (e) => e.font_semibold())
+        .text_color(important ? this.priorityColor(it, t) : it.done ? t.dim : t.foreground).child(it.text))
+      .child(div().flex_none().max_w(80).truncate().text_size(10).text_color(color).child(it.on ? `${source} · ${it.on}` : source))
       .child(div().flex_none().text_size(10).text_color(t.dim).child(opened ? "▾" : "▸"));
-    return opened ? v_flex().gap(2).child(line).child(this.details(it, key, t)) : line;
+    return opened ? v_flex().flex_none().gap(2).child(line).child(this.details(it, key, t)) : line;
   }
 
   render() {
@@ -287,11 +323,13 @@ export default class Todos extends View {
           this.chip(`todos-language-${code}`, `${this.language === code ? "✓ " : ""}${label}`, t,
             (cx) => this.setLanguage(code, cx), this.language === code ? t.accent : t.muted)))))
       .when(!this.collapsed, (el) => el
-        .child(v_flex().id("todos-list").max_h(HEIGHTS[this.h]).overflow_y_scrollbar().gap(1)
+        .child(v_flex().id("todos-list").flex_none().min_h(0).h(HEIGHTS[this.h]).overflow_y_scrollbar().track_scroll(this.scroll).gap(1)
           .children(this.items.map((it) => this.row(it, t)))
           .when(!this.items.length, (e) => e.child(div().px(6).py(8).text_color(t.dim)
             .child(this.missing ? l.missing : l.empty))))
         .child(h_flex().gap(6).items_center()
+          .child(this.chip("todos-top", "↑", t, (cx) => this.jump(false, cx)))
+          .child(this.chip("todos-bottom", "↓", t, (cx) => this.jump(true, cx)))
           .child(div().id("todos-input").relative().flex_1().min_w(0).h(26).px(8).flex().items_center().rounded(6).border_1()
             .border_color(this.typing ? t.accent : t.border).cursor_text()
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())

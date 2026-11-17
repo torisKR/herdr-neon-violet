@@ -150,6 +150,8 @@ The Herdr app shows a floating list at the top right. Each instruction you give 
 - `↔` and `↕` change the width and height, `–` folds it, and you can drag it anywhere.
 - From a shell: `nv todo add "text"`, `nv todo done <id>`, `nv todo list`.
 - The `文` button selects Korean, English, Japanese or Simplified Chinese and remembers your choice. “Follow Herdr” (the default) follows Herdr's `language` or `locale` setting, with English as the fallback when none is available or supported.
+- Scroll inside the list; `↑` and `↓` jump to its first and last items. Rows keep their height, and background refreshes keep your scroll position.
+- Priorities are `P0` urgent, `P1` high, `P2` normal and `P3` low. Automatic priority uses instruction keywords (such as urgent, error or optional) without a model call. Open items are sorted by priority, urgent/high items are emphasized, and completed items stay below them. Click a priority badge to cycle, or open the details to pick a level or return to Auto. From a shell: `nv todo priority <id> high` or `nv todo priority <id> auto`. Update `nv` on each connected machine to edit its priorities.
 
 Each row shows a short headline, and clicking it opens the details: the whole instruction, where it runs, when it started and finished, and a button that takes you to the agent. The headline appears at once from simple rules and is replaced a few seconds later by one written by a small model (Claude Haiku, a separate headless call that uses a few hundred tokens per instruction and adds nothing to the agent's own conversation). Set `NV_TODO_NO_SUMMARY=1` to keep the rule-based headlines and spend no tokens.
 

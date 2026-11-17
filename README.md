@@ -150,6 +150,7 @@ The Herdr app shows a floating list at the top right. Each instruction you give 
 - `↔` and `↕` change the width and height, `–` folds it, and you can drag it anywhere.
 - From a shell: `nv todo add "text"`, `nv todo done <id>`, `nv todo list`.
 - The `文` button selects Korean, English, Japanese or Simplified Chinese and remembers your choice. “Follow Herdr” (the default) follows Herdr's `language` or `locale` setting, with English as the fallback when none is available or supported.
+- Agent-generated headlines follow the selected language, even for instructions written in another language. Existing headlines are localized in small batches and cached per language. Manually added text and the original instruction in details stay as entered. This uses the existing Claude Haiku CLI; `NV_TODO_NO_SUMMARY=1` also disables localization. Update `nv` on connected machines to localize their headlines.
 - Scroll inside the list; `↑` and `↓` jump to its first and last items. Rows keep their height, and background refreshes keep your scroll position.
 - Priorities are `P0` urgent, `P1` high, `P2` normal and `P3` low. Automatic priority uses instruction keywords (such as urgent, error or optional) without a model call. Open items are sorted by priority, urgent/high items are emphasized, and completed items stay below them. Click a priority badge to cycle, or open the details to pick a level or return to Auto. From a shell: `nv todo priority <id> high` or `nv todo priority <id> auto`. Update `nv` on each connected machine to edit its priorities.
 

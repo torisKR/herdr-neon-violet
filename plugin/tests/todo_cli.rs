@@ -31,6 +31,89 @@ impl Drop for Store {
 }
 
 #[test]
+fn localization_saves_the_normalized_language_and_respects_no_summary() {
+    let store = Store::new();
+    assert!(store.run(&["add", "--source", "codex", "Fix scrolling"]).status.success());
+    let path = store.0.join("todos/todos.json");
+    let original = fs::read_to_string(&path).unwrap();
+    let output = store.run(&["localize", "KO_kr"]);
+    assert!(output.status.success());
+    let result: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(result["disabled"], true);
+    let preference: Value = serde_json::from_str(&fs::read_to_string(store.0.join("todos/language.json")).unwrap()).unwrap();
+    assert_eq!(preference["language"], "ko");
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    assert!(!store.run(&["localize", "invalid"]).status.success());
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+}
+
+#[cfg(unix)]
+fn model_script(store: &Store, expected_language: &str, output: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let path = store.0.join("model.sh");
+    let quoted = output.replace('\'', "'\\''");
+    fs::write(&path, format!("#!/bin/sh\ncase \"$*\" in *'{expected_language}'*) ;; *) exit 9;; esac\ncat >/dev/null\nprintf '%s\\n' '{quoted}'\n")).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+    path
+}
+
+#[cfg(unix)]
+#[test]
+fn localized_headlines_are_cached_per_language_and_preserve_manual_tasks_and_originals() {
+    let store = Store::new();
+    let added = store.run(&["add", "--source", "codex", "Fix payment errors"]);
+    let id = String::from_utf8(added.stdout).unwrap().trim().to_string();
+    let manual = store.run(&["add", "AI slop 제거"]);
+    let manual_id = String::from_utf8(manual.stdout).unwrap().trim().to_string();
+    assert!(store.run(&["priority", &id, "high"]).status.success());
+    for (code, name, title) in [("ko", "Korean", "결제 오류 수정"), ("en", "English", "Fix payment errors"), ("ja", "Japanese", "決済エラーを修正"), ("zh", "Simplified Chinese", "修复支付错误")] {
+        let response = serde_json::json!({ &id: title, &manual_id: "잘못된 덮어쓰기" }).to_string();
+        let script = model_script(&store, name, &response);
+        let output = store.command().env_remove("NV_TODO_NO_SUMMARY").env("NV_TODO_SUMMARY_BIN", script).args(["localize", code]).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let items: Value = serde_json::from_slice(&store.run(&["list", "--json"]).stdout).unwrap();
+        let item = &items["items"][0];
+        assert_eq!(item["text"], "Fix payment errors");
+        assert_eq!(item["detail"], "Fix payment errors");
+        assert_eq!(item["priority"], 1);
+        assert_eq!(item["titles"][code], title);
+        assert_eq!(items["items"][1]["text"], "AI slop 제거");
+        assert!(items["items"][1].get("titles").is_none());
+        let cached = store.command().env_remove("NV_TODO_NO_SUMMARY").env("NV_TODO_SUMMARY_BIN", "must-not-run").args(["localize", code]).output().unwrap();
+        assert!(cached.status.success());
+    }
+    let items: Value = serde_json::from_slice(&store.run(&["list", "--json"]).stdout).unwrap();
+    assert_eq!(items["items"][0]["titles"].as_object().unwrap().len(), 4);
+    assert!(store.run(&["title", &id, "Manual new headline"]).status.success());
+    let items: Value = serde_json::from_slice(&store.run(&["list", "--json"]).stdout).unwrap();
+    assert!(items["items"][0].get("titles").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn summary_uses_the_selected_language_and_rejects_invalid_localizations() {
+    let store = Store::new();
+    let added = store.run(&["add", "--source", "codex", "Fix scrolling"]);
+    let id = String::from_utf8(added.stdout).unwrap().trim().to_string();
+    assert!(store.run(&["localize", "ko"]).status.success());
+    let path = store.0.join("todos/todos.json");
+    let original = fs::read_to_string(&path).unwrap();
+    for response in ["not JSON".to_string(), serde_json::json!({ &id: "Still English" }).to_string()] {
+        let script = model_script(&store, "Korean", &response);
+        let output = store.command().env_remove("NV_TODO_NO_SUMMARY").env("NV_TODO_SUMMARY_BIN", script).args(["localize", "ko"]).output().unwrap();
+        assert!(!output.status.success());
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+    let script = model_script(&store, "Korean", "스크롤 오류 수정");
+    let output = store.command().env("NV_TODO_SUMMARY_BIN", script).args(["summarize", &id, "--json"]).output().unwrap();
+    assert!(output.status.success());
+    let result: Value = serde_json::from_slice(&store.run(&["list", "--json"]).stdout).unwrap();
+    assert_eq!(result["items"][0]["text"], "스크롤 오류 수정");
+    assert_eq!(result["items"][0]["titles"]["ko"], "스크롤 오류 수정");
+    assert_eq!(result["items"][0]["detail"], "Fix scrolling");
+}
+
+#[test]
 fn list_assigns_priorities_to_legacy_items_without_rewriting_the_store() {
     let store = Store::new();
     let path = store.0.join("todos/todos.json");

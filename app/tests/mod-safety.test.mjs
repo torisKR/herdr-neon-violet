@@ -185,6 +185,74 @@ test("To-do language selection remains available while folded and does not chang
   ]);
 });
 
+test("generated To-do headlines follow the chosen language while manual text and details stay intact", () => {
+  const h = harness("todos", { settings: () => ({ language: "ko" }) });
+  const item = { id: "one", source: "codex", text: "Fix scrolling", detail: "Please fix scrolling in the list", created: 1,
+    titles: { ko: "스크롤 오류 수정", en: "Fix scrolling", ja: "スクロールを修正", zh: "修复滚动" } };
+  h.view.items = [item]; h.view.open = "local-one";
+  for (const locale of ["ko", "en", "ja", "zh"]) {
+    h.view.setLanguage(locale, h.cx);
+    assert.equal(h.view.headline(item), item.titles[locale]);
+    assert.ok(textOf(h.view.render()).includes(item.titles[locale]));
+    assert.ok(textOf(h.view.render()).includes(item.detail));
+  }
+  assert.equal(h.view.headline({ ...item, source: "me", text: "AI slop 제거" }), "AI slop 제거");
+  assert.equal(item.text, "Fix scrolling");
+});
+
+test("localization batches once per machine and language and reuses cached titles", async () => {
+  let checking = true;
+  const h = harness("todos", { checking: () => checking, settings: () => ({ language: "ko" }) });
+  checking = false;
+  const translated = deferred(), requests = []; let refreshes = 0;
+  h.view.items = [{ id: "one", source: "codex", text: "Fix scrolling", on: "remote", created: 1 }];
+  h.view.nv = (args, on, timeout) => { requests.push(plain({ args, on, timeout })); return translated.promise; };
+  h.view.refresh = () => { refreshes++; };
+  h.view.localize(h.cx, "remote"); h.view.localize(h.cx, "remote");
+  assert.deepEqual(requests, [{ args: ["localize", "ko"], on: "remote", timeout: 120000 }]);
+  translated.resolve(ok({ translated: 1 })); await h.settle();
+  assert.equal(refreshes, 1);
+  h.view.items[0].titles = { ko: "스크롤 오류 수정" };
+  h.view.localize(h.cx, "remote");
+  assert.equal(requests.length, 1);
+  h.view.setLanguage("ja", h.cx); h.view.localize(h.cx, "remote"); await h.settle();
+  assert.equal(requests[1].args[1], "ja");
+  h.view.setLanguage("ko", h.cx); h.view.localize(h.cx, "remote"); await h.settle();
+  assert.equal(requests[2].args[1], "ko", "returning to a cached language still updates the hook preference");
+});
+
+test("completion notifications use the selected localized headline", async () => {
+  const notices = [];
+  const item = { id: "one", source: "codex", text: "Fix scrolling", titles: { ko: "스크롤 오류 수정" }, created: 1, done: false };
+  const h = harness("todos", { settings: () => ({ language: "ko" }), machines: () => [],
+    exec: async () => ok({ items: [item] }), notify: n => notices.push(n) });
+  h.view.refresh(h.cx); await h.settle(); item.done = true; item.done_at = 2;
+  h.view.refresh(h.cx); await h.settle();
+  assert.equal(notices[0].body, "스크롤 오류 수정");
+});
+
+test("unavailable To-do stores are not asked to generate localized headlines", async () => {
+  const requests = [];
+  const h = harness("todos", { machines: () => [{ name: "remote", layout: "ready" }],
+    exec: async (_command, _args, options) => options.on ? { code: 1, stderr: "missing nv" } : ok({ items: [] }) });
+  h.view.localize = (_cx, on) => requests.push(on);
+  h.view.refresh(h.cx); await h.settle();
+  assert.deepEqual(requests, [null]);
+});
+
+test("failed localization backs off instead of repeating model requests each refresh", async () => {
+  let checking = true, requests = 0;
+  const notices = [];
+  const h = harness("todos", { checking: () => checking, notify: n => notices.push(n) });
+  checking = false;
+  h.view.items = [{ id: "one", source: "codex", text: "English headline", on: null }];
+  h.view.nv = async () => { requests++; return { code: 1, stdout: "", stderr: "model unavailable" }; };
+  h.view.localize(h.cx, null); await h.settle();
+  h.view.localize(h.cx, null); await h.settle();
+  assert.equal(requests, 1);
+  assert.equal(notices.length, 1);
+});
+
 test("long To-do lists retain row height and let the native scroll handle reach either end", async () => {
   const items = Array.from({ length: 50 }, (_, n) => ({ id: String(n), text: `task ${n}`, source: "me", created: 1000 - n, done: false }));
   const h = harness("todos", { machines: () => [], exec: async () => ok({ items }) });

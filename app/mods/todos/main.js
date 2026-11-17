@@ -106,6 +106,9 @@ export default class Todos extends View {
     this.collapsed = localStorage.getItem("collapsed") === "1";
     this.language = language(localStorage.getItem("language")) ?? "auto";
     this.languageMenu = false;
+    this.localizing = new Set();
+    this.localized = new Set();
+    this.localizationRetry = new Map();
     this.scroll = ScrollHandle.new();
     this.input = InputState.new();
     this.input.on("change", (_e, cx) => { this.text = this.input.value(); cx.notify(); });
@@ -145,14 +148,46 @@ export default class Todos extends View {
     if (value !== "auto" && !Object.hasOwn(LANGUAGES, value)) return;
     this.language = value;
     this.languageMenu = false;
+    this.localized.clear();
     localStorage.setItem("language", value);
+    if (!checking()) this.refresh(cx);
     cx.notify();
   }
 
+  headline(it) {
+    const title = it.source !== "me" ? it.titles?.[this.locale()] : null;
+    return typeof title === "string" && title.trim() ? title : it.text;
+  }
+
   // Runs `nv todo ...` here, or on another machine through its shell.
-  nv(args, on) {
-    if (on) return exec("sh", ["-c", `"$HOME/.config/herdr-app/bin/nv" todo ${args.map(quote).join(" ")}`], { on, timeout: 15000 });
-    return exec(`${appHome()}/bin/nv${win().platform === "windows" ? ".exe" : ""}`, ["todo", ...args], { timeout: 15000 });
+  nv(args, on, timeout = 15000) {
+    if (on) return exec("sh", ["-c", `"$HOME/.config/herdr-app/bin/nv" todo ${args.map(quote).join(" ")}`], { on, timeout });
+    return exec(`${appHome()}/bin/nv${win().platform === "windows" ? ".exe" : ""}`, ["todo", ...args], { timeout });
+  }
+
+  localize(cx, on) {
+    if (checking()) return;
+    const locale = this.locale(), key = JSON.stringify([on, locale]);
+    const missing = this.items.some(it => (it.on ?? null) === on && it.source !== "me"
+      && (typeof it.titles?.[locale] !== "string" || !it.titles[locale].trim()));
+    if (this.localizing.has(key) || Date.now() < (this.localizationRetry.get(key) ?? 0) || (this.localized.has(key) && !missing)) return;
+    this.localizing.add(key);
+    cx.spawn(async (cx) => {
+      try {
+        const r = await this.nv(["localize", locale], on, 120000);
+        if (r.code !== 0) throw new Error(r.stderr || r.stdout);
+        const result = JSON.parse(r.stdout);
+        this.localized.add(key);
+        if (result.disabled || (missing && !result.translated && !result.busy)) this.localizationRetry.set(key, Date.now() + 60000);
+        if (result.translated) this.refresh(cx);
+      } catch (error) {
+        this.localizationRetry.set(key, Date.now() + 60000);
+        notify({ title: TEXT[this.locale()].failed, body: String(error.message ?? error), level: "error" });
+      } finally {
+        this.localizing.delete(key);
+        cx.notify();
+      }
+    });
   }
 
   refresh(cx) {
@@ -160,8 +195,8 @@ export default class Todos extends View {
     this.loading = true;
     cx.spawn(async (cx) => {
       try {
-        const names = [null, ...machines().filter((m) => m.name && m.layout !== "unavailable").map((m) => m.name)];
-        const lists = await Promise.all([...new Set(names)].map(async (on) => {
+        const names = [...new Set([null, ...machines().filter((m) => m.name && m.layout !== "unavailable").map((m) => m.name)])];
+        const lists = await Promise.all(names.map(async (on) => {
           try {
             const r = await this.nv(["list", "--json"], on);
             if (r.code !== 0) throw new Error(r.stderr);
@@ -177,12 +212,15 @@ export default class Todos extends View {
         if (this.known) {
           for (const it of items) {
             if (it.done && this.known.get(`${it.on}/${it.id}`) === false && it.source !== "me") {
-              notify({ title: TEXT[this.locale()].completed, body: it.text, level: "success", timeout: 6000 });
+              notify({ title: TEXT[this.locale()].completed, body: this.headline(it), level: "success", timeout: 6000 });
             }
           }
         }
         this.known = new Map(items.map((it) => [`${it.on}/${it.id}`, Boolean(it.done)]));
         this.items = items.sort(compare);
+        const locale = this.locale();
+        if (this.titleLanguage !== locale) { this.titleLanguage = locale; this.localized.clear(); }
+        names.forEach((on, i) => { if (lists[i] !== null) this.localize(cx, on); });
       } finally {
         this.loading = false;
         cx.notify();
@@ -290,7 +328,7 @@ export default class Todos extends View {
       .child(this.chip(`todo-priority-${key}`, `P${priority(it)}`, t,
         (cx) => this.change(cx, ["priority", it.id, String((priority(it) + 3) % 4)], it.on), this.priorityColor(it, t)))
       .child(div().flex_1().min_w(0).truncate().when(important, (e) => e.font_semibold())
-        .text_color(important ? this.priorityColor(it, t) : it.done ? t.dim : t.foreground).child(it.text))
+        .text_color(important ? this.priorityColor(it, t) : it.done ? t.dim : t.foreground).child(this.headline(it)))
       .child(div().flex_none().max_w(80).truncate().text_size(10).text_color(color).child(it.on ? `${source} · ${it.on}` : source))
       .child(div().flex_none().text_size(10).text_color(t.dim).child(opened ? "▾" : "▸"));
     return opened ? v_flex().flex_none().gap(2).child(line).child(this.details(it, key, t)) : line;

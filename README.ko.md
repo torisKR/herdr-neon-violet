@@ -1,8 +1,8 @@
 # herdr-neon-violet
 
-[herdr](https://herdr.dev)(AI 코딩 에이전트용 터미널 작업 공간)를 위한 보라색 네온 테마와 플러그인 묶음입니다.
+[English](README.md) · **한국어** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Français](README.fr.md)
 
-A neon-violet theme and plugin pack for [herdr](https://herdr.dev): an **ALL agents** board, a **Devices** popup (adb / emulators / iOS simulators), an **in-terminal browser**, clipboard-over-SSH settings, and matching terminal color schemes.
+[herdr](https://herdr.dev)(AI 코딩 에이전트용 터미널 작업 공간)를 위한 보라색 네온 테마와 플러그인 묶음입니다. **ALL agents** 보드, **Devices** 팝업(adb·에뮬레이터·iOS 시뮬레이터), **터미널 안 브라우저**, SSH 너머 복사 설정, 터미널 색 구성이 들어 있습니다.
 
 ![ALL agents board](docs/agents.png)
 
@@ -77,6 +77,25 @@ herdr 창 안쪽 배경은 바깥 터미널의 배경색을 그대로 씁니다.
 | iTerm2 | `terminal/neon-violet.itermcolors` | Settings → Profiles → Colors → Color Presets → Import |
 | Windows Terminal | `terminal/windows-terminal.json` | `install.ps1`이 넣어 줍니다. 터미널을 다시 켠 뒤 프로필의 색 구성표에서 「Neon Violet」 선택 |
 
+## Herdr 데스크톱 앱
+
+Herdr 데스크톱 앱용 묶음은 `app/` 폴더에 있습니다. 설치 스크립트는 `~/.config/herdr-app` 폴더가 있으면 그 안에 복사하고, 이미 쓰고 있는 키는 바꾸지 않은 채 단축키만 `keys.json`에 더합니다.
+
+| 구성 | 단축키 | 설명 |
+| --- | --- | --- |
+| 테마 `neon-violet` | | 앱에도 같은 색을 씁니다. 설정에서 고르거나 `herdr-app do app.theme --name neon-violet` 실행 |
+| 레이아웃 `all-agents` | `ctrl+shift+a` | 모든 에이전트의 실제 터미널을 한 화면에 격자로 표시(급한 것이 앞). `ctrl+shift+l`로 레이아웃을 되돌립니다 |
+| Devices | `ctrl+shift+d` | 이 컴퓨터와 연결된 모든 머신의 기기·에뮬레이터·시뮬레이터. 꺼져 있는 것을 누르면 켜집니다 |
+| 브라우저 | `ctrl+shift+u` | 오른쪽에 창을 나눠 글자 브라우저를 엽니다 |
+
+`all-agents` 레이아웃에서는:
+
+- 위쪽 칩을 누르거나 `ctrl+d` 완료, `ctrl+w` 작업 중, `ctrl+i` 대기, `ctrl+b` 막힘, `ctrl+a` 전체로 상태별로 골라 봅니다.
+- 이 레이아웃이 떠 있는 동안 이 다섯 키는 필터가 가져가므로 터미널 안의 프로그램에는 전달되지 않습니다.
+- 카드 머리줄을 누르면 그 에이전트가 기본 레이아웃에서 열립니다.
+
+어두운 테마입니다. 앱이 항상 밝은 모양을 쓰도록 설정돼 있으면 설정에서 어둡게 바꿔야 테마가 보입니다. 앱에서는 원래 글자를 드래그하면 복사되고, 원격 머신의 터미널도 마찬가지입니다.
+
 ## SSH 너머에서 드래그로 복사하기
 
 설정에 `copy_on_select = true`가 들어 있어서, herdr 안에서 글자를 드래그하면 바로 복사됩니다. 원격 컴퓨터에 접속해 있을 때 복사된 글자가 어디로 가는지는 접속 방법에 따라 다릅니다.
@@ -93,6 +112,7 @@ herdr 창 안쪽 배경은 바깥 터미널의 배경색을 그대로 씁니다.
 
 - 에이전트마다 카드 하나가 나오고, 최근 출력이 1.5초마다 갱신됩니다.
 - 급한 순서로 정렬됩니다: 막힘(BLOCKED) → 작업 중(WORKING) → 완료(DONE) → 대기(IDLE).
+- 상태별로 골라 볼 수 있습니다: `ctrl+d` 완료, `ctrl+w` 작업 중, `ctrl+i` 대기, `ctrl+a` 전체. 글자만 눌러도(`d`, `w`, `i`, `a`) 되고, `b`는 막힌 에이전트를 보여 줍니다.
 - 숫자 `1`~`9`를 누르면 그 에이전트가 있는 창으로 이동합니다. `q`로 닫습니다.
 - 이 보드는 보드가 열린 herdr 서버의 에이전트만 보여 줍니다. 다른 머신의 에이전트는 사이드바에서 확인하세요.
 
@@ -128,7 +148,8 @@ herdr 창 안쪽 배경은 바깥 터미널의 배경색을 그대로 씁니다.
 ## 확인한 환경
 
 - Windows 11, herdr 0.9.5, Node.js 26에서 테마와 세 창(ALL agents, Devices, 브라우저)을 실행해 확인했습니다.
-- Devices의 adb·simctl 읽기는 `demo/fixtures`의 예시 출력으로만 확인했습니다. 실제 기기를 연결한 상태와 macOS에서는 아직 돌려 보지 못했습니다. 문제가 있으면 이슈로 알려 주세요.
+- Windows 11의 Herdr 데스크톱 앱에서 테마, `all-agents` 레이아웃과 필터, Devices를 실행해 확인했습니다. Devices는 연결된 맥의 실제 안드로이드 기기, 에뮬레이터, iOS 시뮬레이터를 보여 줬습니다.
+- 터미널 플러그인의 Devices 창은 `demo/fixtures`의 예시 출력으로 확인했고, 같은 명령이 실제 맥에서도 그 형식으로 나오는 것을 봤습니다. macOS에 이 묶음을 직접 설치해 보지는 못했습니다. 문제가 있으면 이슈로 알려 주세요.
 
 ## 만든 배경
 

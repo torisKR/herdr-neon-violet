@@ -1,0 +1,160 @@
+# herdr-neon-violet
+
+[English](README.md) · [한국어](README.ko.md) · **简体中文** · [日本語](README.ja.md) · [Français](README.fr.md)
+
+为 [herdr](https://herdr.dev)(面向 AI 编程代理的终端工作区)准备的霓虹紫主题和插件包。包含 **ALL agents** 面板、**Devices** 弹窗(adb、模拟器、iOS 模拟器)、**终端内浏览器**、通过 SSH 复制的设置,以及配套的终端配色。
+
+![ALL agents board](docs/agents.png)
+
+## 包含的内容
+
+| 功能 | 快捷键 | 说明 |
+| --- | --- | --- |
+| 霓虹紫主题 | | 整个 herdr 界面的配色,以及侧边栏里更详细的代理列表 |
+| ALL agents | `prefix` `a` | 把所有正在运行的代理平铺在一个标签页里 |
+| Devices | `prefix` `d` | 在一个列表里查看 adb 设备、Android 模拟器和 iOS 模拟器 |
+| 浏览器 | `prefix` `u` | 在终端里阅读网页,通过 SSH 也能用 |
+| 切换代理 | `prefix` `,` / `prefix` `.` | 跳到上一个 / 下一个代理 |
+| 通过 SSH 复制 | 拖动 | 在远程窗格里拖选文字,文字会进入你本机的剪贴板 |
+
+`prefix` 默认是 `ctrl+b`。
+
+## 截图
+
+**主界面。** 侧边栏下方按紧急程度列出代理:受阻、工作中、已完成、空闲。
+
+![main](docs/main.png)
+
+**Devices。** 已连接的设备,以及尚未启动的模拟器。按 `enter` 启动已停止的模拟器,按 `y` 复制设备 ID。
+
+![devices](docs/devices.png)
+
+**浏览器。** 在右侧分屏打开,以文字形式显示页面。输入链接编号再按 `enter` 即可跳转。
+
+![browser](docs/browser.png)
+
+> 截图中的代理对话和设备列表来自 `demo/` 目录里的示例数据。
+
+## 安装
+
+需要 herdr 0.9.5 或更高版本,以及 Node.js 18 或更高版本。
+
+**macOS / Linux**
+
+```bash
+git clone https://github.com/torisKR/herdr-neon-violet.git
+cd herdr-neon-violet
+./install.sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/torisKR/herdr-neon-violet.git
+cd herdr-neon-violet
+.\install.ps1
+```
+
+安装脚本做三件事:
+
+1. 把现有的 herdr 配置备份为 `config.toml.bak-<日期>`,然后安装 `config/config.toml`。
+2. 把 `plugin/` 目录链接为 herdr 插件(`herdr plugin link`)。
+3. 安装终端配色(Ghostty 主题或 Windows Terminal 配色方案)。
+
+如果只想用插件,可以直接从 GitHub 安装,再把 `config/config.toml` 里的 `[[keys.command]]` 部分复制到自己的配置中:
+
+```bash
+herdr plugin install torisKR/herdr-neon-violet/plugin
+```
+
+### 让终端配色保持一致
+
+herdr 窗格的背景使用外层终端的背景色,所以终端也要用同样的颜色,效果才会和截图一致。
+
+| 终端 | 文件 | 应用方法 |
+| --- | --- | --- |
+| Ghostty | `terminal/ghostty-neon-violet` | 复制到 `~/.config/ghostty/themes/neon-violet`,并在配置里加上 `theme = neon-violet` |
+| iTerm2 | `terminal/neon-violet.itermcolors` | Settings → Profiles → Colors → Color Presets → Import |
+| Windows Terminal | `terminal/windows-terminal.json` | 由 `install.ps1` 添加。重启终端后,在配置文件的配色方案里选择 "Neon Violet" |
+
+## Herdr 桌面应用
+
+面向 Herdr 桌面应用的同一套内容放在 `app/` 目录里。如果存在 `~/.config/herdr-app` 目录,安装脚本会把它复制进去,并把快捷键加入 `keys.json`,不会替换你已经在用的按键。
+
+| 组成 | 快捷键 | 说明 |
+| --- | --- | --- |
+| 主题 `neon-violet` | | 应用也使用同样的配色。在设置里选择,或运行 `herdr-app do app.theme --name neon-violet` |
+| 布局 `all-agents` | `ctrl+shift+a` | 把所有代理的实时终端排成一个网格,最紧急的在前。`ctrl+shift+l` 切换回其他布局 |
+| Devices | `ctrl+shift+d` | 本机以及所有已连接机器上的设备和模拟器。点击已停止的模拟器即可启动 |
+| 浏览器 | `ctrl+shift+u` | 在右侧分屏打开文字浏览器 |
+
+在 `all-agents` 布局中:
+
+- 点击顶部的筛选按钮,或用 `ctrl+d` 已完成、`ctrl+w` 工作中、`ctrl+i` 空闲、`ctrl+b` 受阻、`ctrl+a` 全部,按状态筛选。
+- 这个布局显示时,这五个按键归筛选使用,不会传给终端里的程序。
+- 点击卡片的标题栏,会在主布局中打开对应的代理。
+
+这是深色主题。如果应用被设置为始终使用浅色外观,需要在设置里改成深色,主题才会显示。在应用里拖选文字本来就会复制,远程机器上的终端也一样。
+
+## 通过 SSH 拖动复制
+
+配置里设置了 `copy_on_select = true`,所以在 herdr 里拖选文字就会复制。连接到远程机器时,文字会去哪里取决于连接方式。
+
+- **用 `herdr --remote <主机>` 或已保存的机器连接。** 负责绘制界面的 herdr 运行在你自己的电脑上,文字会直接进入你的剪贴板,不需要额外设置。
+- **先用 `ssh` 登录,再在里面运行 `herdr`。** herdr 通过名为 OSC 52 的终端转义序列发送文字,由你的终端写入剪贴板。终端必须允许这个操作。
+  - iTerm2:Settings → General → Selection → 打开 "Applications in terminal may access clipboard"
+  - Ghostty:`clipboard-write = allow`
+  - macOS 自带的 Terminal.app 不支持 OSC 52,请改用上面的 `herdr --remote` 方式。
+
+## ALL agents
+
+`prefix` `a` 打开 "ALL agents" 标签页;如果已经打开,就切换过去。
+
+- 每个代理一张卡片,最近的输出每 1.5 秒刷新一次。
+- 按紧急程度排序:BLOCKED、WORKING、DONE、IDLE。
+- 按状态筛选:`ctrl+d` 已完成、`ctrl+w` 工作中、`ctrl+i` 空闲、`ctrl+a` 全部。单独按字母 `d`、`w`、`i`、`a` 也可以,`b` 显示受阻的代理。
+- 按 `1`–`9` 跳到对应代理的窗格,按 `q` 关闭。
+- 面板只显示它所在的 herdr 服务器上的代理。其他机器上的代理请在侧边栏查看。
+
+## Devices
+
+用 `prefix` `d` 打开。它在窗格所在的机器上读取以下信息:
+
+- `adb devices -l`:已连接的 Android 设备和正在运行的模拟器(含 Android 版本)
+- `emulator -list-avds`:尚未启动的模拟器
+- 在 macOS 上,`xcrun simctl` 和 `xcrun xctrace`:iOS 模拟器以及已连接的 iPhone 和 iPad
+
+`adb` 和 `emulator` 会在 `PATH`、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 以及 Android Studio 的默认位置(如 `~/Library/Android/sdk`)中查找。
+
+## 浏览器
+
+用 `prefix` `u` 打开,然后输入网址或搜索词。搜索词会交给 DuckDuckGo。
+
+| 按键 | 操作 |
+| --- | --- |
+| `j` / `k`、方向键 | 滚动 |
+| `space` / `b` | 向下 / 向上翻一屏 |
+| 数字 + `enter` | 打开对应编号的链接 |
+| `u` 或 `/` | 输入新的网址或搜索词 |
+| `h` | 后退 |
+| `y` | 把当前网址复制到你的剪贴板 |
+| `o` | 用窗格所在机器的默认浏览器打开 |
+| `q` | 关闭 |
+
+这是一个文字浏览器,由 JavaScript 渲染的页面可能显示为空。它适合阅读文档和查看开发服务器的返回内容。
+
+在窗格里按住 `ctrl` 点击 `http://localhost:<端口>` 链接,会用这个浏览器打开。远程机器上的开发服务器在那台机器上,而不在你笔记本的 localhost 上。其他链接仍按 herdr 的默认行为在你自己的浏览器里打开。
+
+## 测试环境
+
+- Windows 11、herdr 0.9.5、Node.js 26:已实际运行并检查主题和三个窗格(ALL agents、Devices、浏览器)。
+- Windows 11 上的 Herdr 桌面应用:已在应用中运行主题、`all-agents` 布局及其筛选、Devices。Devices 列出了一台已连接 Mac 上真实的 Android 设备、模拟器和 iOS 模拟器。
+- 终端插件的 Devices 窗格用 `demo/fixtures` 里的示例输出检查过;同样的命令在真实的 Mac 上返回相同的格式。这套内容还没有在 macOS 上直接安装过。如有问题,欢迎提交 issue。
+
+## 致谢
+
+配色的灵感来自 VS Code 主题 Cyber Purple 77 的截图,并针对 herdr 的颜色标记重新挑选。
+
+## 许可证
+
+MIT

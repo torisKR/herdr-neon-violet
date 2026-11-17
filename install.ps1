@@ -56,9 +56,10 @@ if (Test-Path $app) {
   }
   Copy-Item $nv (Join-Path $app 'bin\nv.exe') -Force
   Copy-Item (Join-Path $here 'app\browser\nv-preview.mjs') (Join-Path $app 'bin\nv-preview.mjs') -Force
+  Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','editor','nv-tabs','nv-new-menu','nv-files') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
   Write-Warning "Graphical Browser requires macOS/Linux; Windows keeps nv browse as the terminal fallback."
   "installed Herdr app pack -> $app"

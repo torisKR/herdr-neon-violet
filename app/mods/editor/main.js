@@ -7,7 +7,7 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, TextView } from "gpui-base";
-import { checking, nextCommand, props, readTextFile, settings, theme, writeTextFile } from "herdr";
+import { appHome, checking, exec, nextCommand, openOverlay, props, readTextFile, settings, theme, writeTextFile } from "herdr";
 
 // Extension -> the editor's language. Languages without a grammar of their own
 // (Dart, Kotlin, Gradle, PHP …) borrow the closest C-like one so keywords, strings
@@ -15,7 +15,7 @@ import { checking, nextCommand, props, readTextFile, settings, theme, writeTextF
 const LANG = {
   ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", cjs: "js",
   dart: "js", kt: "js", kts: "js", gradle: "js", groovy: "js", php: "js", scala: "js",
-  toml: "yaml", yml: "yaml", lock: "yaml", ini: "yaml", conf: "yaml", env: "yaml", properties: "yaml",
+  toml: "yaml", yml: "yaml", lock: "yaml", ini: "yaml", conf: "yaml", env: "sh", properties: "yaml",
   jsonc: "json", json5: "json", arb: "json", ipynb: "json", webmanifest: "json",
   svelte: "html", vue: "html", xml: "html", plist: "html", svg: "html", storyboard: "html", xib: "html", htm: "html",
   markdown: "md", mdx: "md", mmd: "md",
@@ -24,9 +24,11 @@ const LANG = {
   pyi: "py", scss: "css", less: "css",
 };
 const MARKDOWN = new Set(["md", "markdown", "mdx"]);
+const HTML = new Set(["html", "htm"]);
 
 const extension = (file) => {
   const name = file.split(/[\\/]/).pop() ?? "";
+  if (/^\.env(?:\..+)?$/i.test(name)) return "env";
   if (/^(Dockerfile|Makefile|Gemfile|Podfile|Fastfile)$/i.test(name)) return name.toLowerCase() === "dockerfile" ? "sh" : "rb";
   return name.includes(".") ? name.split(".").pop().toLowerCase() : "txt";
 };
@@ -50,6 +52,7 @@ export default class EditorPane extends View {
         const command = await nextCommand();
         if (command === "save") this.save(cx);
         else if (command === "preview") this.preview = !this.preview;
+        else if (command === "browser-preview") this.browserPreview(cx);
         else if (command === "wrap") this.setWrap(!this.wrap, cx);
         else if (command === "focus") this.state?.focus();
         cx.notify();
@@ -69,7 +72,7 @@ export default class EditorPane extends View {
       font_size: 13,
       syntax: {
         keyword: t.ansi5, string: t.ansi2, "string.escape": t.ansi6, comment: t.dim, function: t.ansi4, type: t.ansi3,
-        number: t.ansi11, constant: t.ansi6, boolean: t.ansi1, operator: t.muted, punctuation: t.muted, variable: t.foreground,
+        number: t.ansi11, constant: t.ansi6, boolean: t.ansi1, operator: t.muted, punctuation: t.muted, variable: this.ext === "env" ? t.ansi6 : t.foreground,
       },
     });
     this.state.on("change", (_e, cx) => {
@@ -145,6 +148,27 @@ export default class EditorPane extends View {
     this.build(this.state.value(), cx);
   }
 
+  browserPreview(cx) {
+    if (!this.state || !HTML.has(this.ext) || this.previewBusy) return;
+    this.previewBusy = true;
+    const html = this.state.value();
+    cx.spawn(async cx => {
+      let input;
+      try {
+        const helper = `${appHome()}/bin/nv-preview.mjs`;
+        const reserved = await exec("node", [helper, "reserve", appHome()]);
+        if (reserved.code !== 0) throw new Error(reserved.stderr || reserved.stdout);
+        input = JSON.parse(reserved.stdout).input;
+        await writeTextFile(input, JSON.stringify({ html, file: this.file, on: this.on }), "");
+        const r = await exec("node", [helper, "render", appHome(), input]);
+        if (r.code !== 0) throw new Error(r.stderr || r.stdout);
+        openOverlay({ mod: "nv-browser", kind: "dialog", width: 460, height: 160, props: { url: JSON.parse(r.stdout).url } });
+      } catch (error) { this.note = { text: String(error.message ?? error), ok: false }; }
+      finally { if (input) await exec("node", [`${appHome()}/bin/nv-preview.mjs`, "discard", appHome(), input]).catch(() => {}); }
+      this.previewBusy = false; cx.notify();
+    });
+  }
+
   chip(id, text, t, active, onClick) {
     return div().id(id).px(8).py(2).rounded(6).text_size(11).cursor_pointer().border_1()
       .border_color(active ? t.accent : t.border).text_color(active ? t.foreground : t.muted)
@@ -157,7 +181,7 @@ export default class EditorPane extends View {
     const t = theme();
     if (!this.file) return div().size_full().p(16).text_color(t.dim).child("No file. Open one from the Files panel.");
     const parts = this.file.split(/[\\/]/), name = parts.pop();
-    const markdown = MARKDOWN.has(this.ext);
+    const markdown = MARKDOWN.has(this.ext), html = HTML.has(this.ext);
     const canSave = this.dirty && !this.readonly && !this.saving;
     return v_flex().id("editor").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(13)
       .child(h_flex().h(38).flex_none().px(12).gap(8).items_center().border_b(1).border_color(t.border)
@@ -166,7 +190,8 @@ export default class EditorPane extends View {
         .when(Boolean(this.note), (e) => e.child(div().flex_none().text_size(11).text_color(this.note.ok ? t.done : t.blocked).child(this.note.text)))
         .when(this.readonly === true, (e) => e.child(div().flex_none().text_size(11).text_color(t.working).child(this.on ? "read-only (remote)" : "read-only")))
         .child(div().flex_none().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(this.ext))
-        .when(markdown, (e) => e.child(this.chip("editor-preview", this.preview ? "Source" : "Preview", t, false, (cx) => { this.preview = !this.preview; cx.notify(); })))
+        .when(markdown || html, (e) => e.child(this.chip("editor-preview", this.preview ? "Source" : "Preview", t, false, (cx) => { this.preview = !this.preview; cx.notify(); })))
+        .when(html, e => e.child(this.chip("editor-browser-preview", this.previewBusy ? "Opening…" : "Browser", t, false, cx => this.browserPreview(cx))))
         .child(this.chip("editor-wrap", "Wrap", t, this.wrap, (cx) => this.setWrap(!this.wrap, cx)))
         .child(this.chip("editor-reload", this.reloadConfirm !== null ? "Discard edits? Reload" : "Reload", t, false, (cx) => this.reload(cx)))
         .child(div().id("editor-save").flex_none().px(10).py(3).rounded(6).text_size(11)
@@ -178,9 +203,9 @@ export default class EditorPane extends View {
         ? div().p(16).text_color(t.dim).child(this.error)
         : !this.state
           ? div().p(16).text_color(t.dim).child("Loading…")
-          : this.preview && markdown
+          : this.preview && (markdown || html)
             ? div().id("editor-md").flex_1().min_h(0).overflow_y_scrollbar().px(28).py(18).text_size(14)
-                .child(TextView.markdown("editor-md-view", this.state.value()).selectable(true))
+                .child((html ? TextView.html("editor-html-view", this.state.value()) : TextView.markdown("editor-md-view", this.state.value())).selectable(true))
             : Editor.new(this.state).flex_1().min_h(0));
   }
 }

@@ -154,17 +154,7 @@
             }
           ],
           "padding": 8,
-          "gap": 8,
-          "floating": [
-            {
-              "id": "todos",
-              "content": {
-                "mod": "todos"
-              },
-              "edge": "top",
-              "align": "end"
-            }
-          ]
+          "gap": 8
         },
         {
           "id": "status",

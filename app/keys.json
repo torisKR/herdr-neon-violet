@@ -1,17 +1,10 @@
 {
   "global": {
+    "ctrl-shift-h": "mod.open:nv-code",
+    "ctrl-shift-k": "mod.open:nv-shortcuts",
     "ctrl-shift-a": "layout.switch:all-agents",
     "ctrl-shift-d": "mod.open:devices",
-    "ctrl-shift-u": {
-      "command": "pane.split",
-      "args": {
-        "direction": "right",
-        "argv": [
-          "{{NV}}",
-          "browse"
-        ]
-      }
-    },
+    "ctrl-shift-u": "mod.open:nv-browser",
     "ctrl-shift-g": {
       "command": "pane.split",
       "args": {

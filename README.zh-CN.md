@@ -87,12 +87,13 @@ herdr 窗格的背景使用外层终端的背景色,所以终端也要用同样�
 | 主题 `neon-violet` | | 应用也使用同样的配色。在设置里选择,或运行 `herdr-app do app.theme --name neon-violet` |
 | 布局 `all-agents` | `ctrl+shift+a` | 把所有代理的实时终端排成一个网格,最紧急的在前。`ctrl+shift+l` 切换回其他布局 |
 | Devices | `ctrl+shift+d` | 本机以及所有已连接机器上的设备和模拟器。点击已停止的模拟器即可启动 |
-| 浏览器 | `ctrl+shift+u` | 在右侧分屏打开文字浏览器 |
-| 布局 `neon-violet` | `ctrl+shift+l` | 在主布局上加入窗口模糊、半透明和待办列表 |
+| 浏览器 | `ctrl+shift+u` | macOS/Linux 打开可交互的 Chromium，支持智能体操作；Windows 保留文本浏览器 |
+| 布局 `neon-violet` | `ctrl+shift+l` | 带窗口模糊和半透明效果的主布局 |
 | Pull requests | `ctrl+shift+g` | 当前仓库的未合并拉取请求:说明、改动文件、评论。可在面板里评论和合并 |
-| To-do | | 悬浮在右上角的列表,显示你交给代理的任务 |
+| 代码高亮 | `ctrl+shift+h` | 粘贴代码,查看语法颜色、行号和折叠 |
+| 快捷键列表 | `ctrl+shift+k` | 搜索当前按键绑定、操作和上下文 |
 
-在 `neon-violet` 布局中,右上角的 `+` 按钮也会列出这些工具(ALL agents、Devices、Pull requests、Browser)。在 Files 面板里点击文件,会在主区域以编辑器标签页打开:语法高亮、行号、折叠、可编辑并用 `ctrl+s` 保存,Markdown 可渲染预览。其他机器上的文件以只读方式打开。Mermaid 图表显示为源码,不会绘制。
+在 `neon-violet` 布局中,右上角的 `+` 按钮也会列出这些工具(ALL agents、Devices、代码高亮、快捷键列表、Pull requests、Browser)。在 Files 面板里点击文件,会在主区域以编辑器标签页打开:语法高亮、行号、折叠、可编辑并用 `ctrl+s` 保存,Markdown 可渲染预览。其他机器上的文件以只读方式打开。Mermaid 图表显示为源码,不会绘制。
 
 在 macOS 上,这套内容的所有快捷键都用 `cmd` 代替 `ctrl`。如果 `cmd+shift+d` 已被占用(用于拆分窗格),Devices 使用 `cmd+shift+m`。
 
@@ -100,7 +101,7 @@ herdr 窗格的背景使用外层终端的背景色,所以终端也要用同样�
 
 - 点击顶部的筛选按钮,或用 `ctrl+d` 已完成、`ctrl+w` 工作中、`ctrl+i` 空闲、`ctrl+b` 受阻、`ctrl+a` 全部,按状态筛选。
 - 这个布局显示时,这五个按键归筛选使用,不会传给终端里的程序。
-- 点击卡片的标题栏,会在主布局中打开对应的代理。
+- 点击卡片标题栏可打开对应代理,点击“Back to Herdr”可离开面板。从 `+` 菜单进入时,两者都会返回原来的布局,保留菜单工具。直接进入时,若已安装 Neon Violet,则返回该布局。
 
 这是深色主题。如果应用被设置为始终使用浅色外观,需要在设置里改成深色,主题才会显示。在应用里拖选文字本来就会复制,远程机器上的终端也一样。
 
@@ -142,15 +143,13 @@ herdr 窗格的背景使用外层终端的背景色,所以终端也要用同样�
 
 Herdr 桌面应用本身已有文件浏览器(右上角的 Files 按钮),所以这里只为应用增加了拉取请求面板。
 
-## 待办列表
+## 代码高亮和快捷键
 
-Herdr 应用右上角有一个悬浮列表。你每次给 Claude Code 或 Codex 下达指令都会生成一项,该轮结束时会被勾选并弹出通知。你也可以自己添加、勾选和删除,列表会包含所有已连接机器上的项目。
+从 `+` 选择 **代码高亮**,或按 `ctrl+shift+h`。粘贴代码并选择语法,可使用颜色高亮、行号和代码折叠。可切换高亮和自动换行,草稿保存在本机。
 
-- 每台机器开启一次:`~/.config/herdr-app/bin/nv todo hooks install`。它会在 Claude Code 的 `settings.json` 和 Codex 的 `hooks.json` 中加入两个钩子(提交指令、该轮结束),保留已有的钩子并写入备份。用 `nv todo hooks remove` 移除。
-- `↔` 和 `↕` 调整宽度和高度,`–` 折叠,也可以拖到任意位置。
-- 在命令行中:`nv todo add "内容"`、`nv todo done <id>`、`nv todo list`。
+从 `+` 选择 **快捷键列表**,或按 `ctrl+shift+k`,查看包含自定义设置的当前 Herdr 按键绑定。支持按键、操作和上下文搜索。macOS 使用 `cmd` 代替 `ctrl`。
 
-每一行显示一个简短标题,点击后展开详情:完整指令、运行位置、开始和完成时间,以及跳转到对应代理的按钮。标题先由简单规则立即生成,几秒后换成小模型(Claude Haiku)写的标题。这是一次独立的无界面调用,每条指令消耗几百个 token,不会向代理自己的对话添加任何内容。设置 `NV_TODO_NO_SUMMARY=1` 可只用规则标题、不消耗 token。
+两个工具和 `+` 菜单支持英语、日语、简体中文和韩语。在工具底部选择语言,或用“跟随 Herdr”读取应用的 `language`/`locale` 设置。
 
 ## Devices
 
@@ -194,3 +193,5 @@ Herdr 应用右上角有一个悬浮列表。你每次给 Claude Code 或 Codex 
 ## 许可证
 
 MIT
+
+Graphical browser setup, agent controls, `.env` highlighting and Markdown/HTML previews: [Browser and document previews](docs/BROWSER.md).

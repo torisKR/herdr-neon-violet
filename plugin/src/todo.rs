@@ -8,9 +8,10 @@
 
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Stdio;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn home() -> PathBuf {
     PathBuf::from(std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")).unwrap_or_else(|_| ".".into()))
@@ -213,8 +214,93 @@ fn stdin_json() -> Value {
     serde_json::from_str(&s).unwrap_or(Value::Null)
 }
 
+const SUMMARY_PROMPT: &str = "You write to-do headlines. Reply with one line only: what the user is asking for, as a short action phrase of at most 8 words, in the same language as the request. No quotes, no period, no preamble.";
+
+/// Starts `nv todo summarize <id>` on its own, so the hook returns at once.
+/// Set NV_TODO_NO_SUMMARY to keep the rule-based headlines and spend no tokens.
+fn spawn_summary(id: &str) {
+    if std::env::var_os("NV_TODO_NO_SUMMARY").is_some() {
+        return;
+    }
+    let Ok(exe) = std::env::current_exe() else { return };
+    let mut c = std::process::Command::new(exe);
+    c.args(["todo", "summarize", id]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.creation_flags(0x0800_0000 | 0x0000_0200); // CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        c.process_group(0);
+    }
+    let _ = c.spawn();
+}
+
+/// The Claude Code CLI: next to the user's other tools, else whatever PATH has.
+fn claude_bin() -> String {
+    let name = if cfg!(windows) { "claude.exe" } else { "claude" };
+    let local = home().join(".local").join("bin").join(name);
+    if local.is_file() { local.to_string_lossy().into_owned() } else { "claude".to_string() }
+}
+
+/// Asks a small model for a one-line headline of the item and stores it.
+/// A separate headless call: nothing is added to the agent's own conversation, no tools,
+/// no hooks, no saved session. Any failure leaves the rule-based headline in place.
+fn summarize(id: &str) -> Result<(), String> {
+    let items = load();
+    let item = items.iter().find(|it| str_of(it, "id") == id).ok_or("no such to-do")?;
+    let detail = if str_of(item, "detail").is_empty() { str_of(item, "text") } else { str_of(item, "detail") }.to_string();
+
+    let mut c = crate::ui::command(&claude_bin());
+    c.args(["-p", "--model", "haiku", "--no-session-persistence", "--tools", "", "--strict-mcp-config", "--setting-sources", "", "--system-prompt", SUMMARY_PROMPT])
+        .env("NV_TODO_SUMMARY", "1")
+        .current_dir(std::env::temp_dir())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = c.spawn().map_err(|e| e.to_string())?;
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(detail.as_bytes());
+    }
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) if status.success() => break,
+            Ok(Some(_)) => return Err("the summary call failed".into()),
+            Ok(None) if started.elapsed() > Duration::from_secs(90) => {
+                let _ = child.kill();
+                return Err("the summary call timed out".into());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(200)),
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = stdout.read_to_string(&mut out);
+    }
+    let line = out.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    let title = line.trim_matches(|c: char| c == '"' || c == '`' || c == '*' || c == '“' || c == '”').trim_end_matches(['.', '。']).trim();
+    if title.is_empty() {
+        return Err("the summary was empty".into());
+    }
+    let title: String = if title.chars().count() > 60 { title.chars().take(59).collect::<String>() + "…" } else { title.to_string() };
+    // Re-read: the list may have changed while the model was answering.
+    let mut items = load();
+    if retitle(&mut items, id, &title) {
+        save(&items)?;
+    }
+    Ok(())
+}
+
 /// Agent hooks. They must never fail the agent, so every path ends quietly.
 fn hook(kind: &str, args: &[String]) -> Result<(), String> {
+    // The headless summary call must not create to-dos of its own.
+    if std::env::var_os("NV_TODO_SUMMARY").is_some() {
+        return Ok(());
+    }
     let mut items = load();
     // The session an event belongs to; Codex and Claude Code both send session_id and cwd.
     let session_of = |v: &Value| -> String {
@@ -236,7 +322,11 @@ fn hook(kind: &str, args: &[String]) -> Result<(), String> {
             if first.is_empty() || first.starts_with('/') || automated {
                 return Ok(());
             }
-            add(&mut items, prompt, agent, &session_of(&v), str_of(&v, "cwd"), false);
+            let id = add(&mut items, prompt, agent, &session_of(&v), str_of(&v, "cwd"), false);
+            save(&items)?;
+            // The rule-based headline shows at once; a small model replaces it a few seconds later.
+            spawn_summary(&id);
+            return Ok(());
         }
         // Stop (Claude Code, Codex): the turn ended, so that session's open items are checked.
         "claude-stop" | "codex-stop" => {
@@ -372,6 +462,15 @@ pub fn main(args: &[String]) -> i32 {
                     return Err(format!("no to-do with id '{id}'"));
                 }
                 save(&items)?;
+            }
+            "summarize" => {
+                // Started by the prompt hook; quiet on failure so the rule-based headline stays.
+                let id = o.rest.first().cloned().unwrap_or_default();
+                if let Err(e) = summarize(&id) {
+                    if o.json {
+                        eprintln!("{e}");
+                    }
+                }
             }
             "title" => {
                 // nv todo title <id> <new headline>

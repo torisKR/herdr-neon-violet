@@ -150,6 +150,8 @@ The Herdr app shows a floating list at the top right. Each instruction you give 
 - `↔` and `↕` change the width and height, `–` folds it, and you can drag it anywhere.
 - From a shell: `nv todo add "text"`, `nv todo done <id>`, `nv todo list`.
 
+Each row shows a short headline, and clicking it opens the details: the whole instruction, where it runs, when it started and finished, and a button that takes you to the agent. The headline appears at once from simple rules and is replaced a few seconds later by one written by a small model (Claude Haiku, a separate headless call that uses a few hundred tokens per instruction and adds nothing to the agent's own conversation). Set `NV_TODO_NO_SUMMARY=1` to keep the rule-based headlines and spend no tokens.
+
 ## Devices
 
 `prefix` `d` opens it. It reads the following on the machine where the pane runs:

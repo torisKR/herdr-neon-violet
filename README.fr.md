@@ -150,6 +150,8 @@ L'application Herdr affiche une liste flottante en haut à droite. Chaque instru
 - `↔` et `↕` changent la largeur et la hauteur, `–` replie la liste, et vous pouvez la faire glisser où vous voulez.
 - Depuis un shell : `nv todo add "texte"`, `nv todo done <id>`, `nv todo list`.
 
+Chaque ligne affiche un titre court ; un clic ouvre le détail : l'instruction entière, l'endroit où elle s'exécute, les heures de début et de fin, et un bouton qui mène à l'agent. Le titre apparaît tout de suite à partir de règles simples, puis il est remplacé quelques secondes plus tard par un titre écrit par un petit modèle (Claude Haiku, un appel séparé sans interface qui consomme quelques centaines de tokens par instruction et n'ajoute rien à la conversation de l'agent). Définissez `NV_TODO_NO_SUMMARY=1` pour garder les titres par règles et ne dépenser aucun token.
+
 ## Devices
 
 `prefix` `d` l'ouvre. Il lit les informations suivantes sur la machine où tourne le panneau :

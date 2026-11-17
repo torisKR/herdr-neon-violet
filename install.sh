@@ -26,4 +26,17 @@ if [ -d "$HOME/.config/ghostty" ]; then
 fi
 
 herdr server reload-config >/dev/null 2>&1 || true
+
+# Herdr desktop app: theme, ALL agents layout, Devices mod, shortcuts
+app="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
+if [ -d "$app" ]; then
+  mkdir -p "$app/themes" "$app/layouts" "$app/mods"
+  cp "$here/app/themes/neon-violet.json" "$app/themes/"
+  cp "$here/app/layouts/all-agents.json" "$app/layouts/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$app/mods/"
+  node "$here/app/merge-keys.mjs" "$app/keys.json" "$here/plugin/browse.mjs"
+  echo "installed Herdr app pack -> $app"
+  echo "  theme: herdr-app do app.theme --name neon-violet   (it is a dark theme)"
+  echo "  ALL agents: ctrl+shift+a   Devices: ctrl+shift+d   Browser: ctrl+shift+u"
+fi
 echo "done. iTerm2: import terminal/neon-violet.itermcolors (Settings > Profiles > Colors > Color Presets)."

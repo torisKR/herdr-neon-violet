@@ -1,0 +1,23 @@
+{
+  "global": {
+    "ctrl-shift-a": "layout.switch:all-agents",
+    "ctrl-shift-d": "mod.open:devices",
+    "ctrl-shift-u": {
+      "command": "pane.split",
+      "args": {
+        "direction": "right",
+        "argv": [
+          "node",
+          "{{BROWSE}}"
+        ]
+      }
+    }
+  },
+  "layout:all-agents": {
+    "ctrl-a": "all-agents.all",
+    "ctrl-d": "all-agents.done",
+    "ctrl-w": "all-agents.working",
+    "ctrl-i": "all-agents.idle",
+    "ctrl-b": "all-agents.blocked"
+  }
+}

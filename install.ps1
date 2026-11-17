@@ -30,4 +30,17 @@ Copy-Item (Join-Path $here 'terminal\windows-terminal.json') (Join-Path $frag 'n
 
 & herdr server reload-config 2>$null | Out-Null
 if ($LASTEXITCODE -ne 0) { 'herdr is not running or not reachable from this terminal - press prefix+shift+r inside herdr to reload the config.' }
+# Herdr desktop app: theme, ALL agents layout, Devices mod, shortcuts
+$app = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } else { Join-Path $env:USERPROFILE '.config\herdr-app' }
+if (Test-Path $app) {
+  foreach ($d in 'themes','layouts','mods') { New-Item -ItemType Directory -Force (Join-Path $app $d) | Out-Null }
+  Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
+  Copy-Item (Join-Path $here 'app\layouts\all-agents.json') (Join-Path $app 'layouts') -Force
+  Copy-Item (Join-Path $here 'app\mods\all-agents') (Join-Path $app 'mods') -Recurse -Force
+  Copy-Item (Join-Path $here 'app\mods\devices') (Join-Path $app 'mods') -Recurse -Force
+  & node (Join-Path $here 'app\merge-keys.mjs') (Join-Path $app 'keys.json') (Join-Path $here 'plugin\browse.mjs')
+  "installed Herdr app pack -> $app"
+  '  theme: herdr-app do app.theme --name neon-violet   (it is a dark theme)'
+  '  ALL agents: ctrl+shift+a   Devices: ctrl+shift+d   Browser: ctrl+shift+u'
+}
 'done.'

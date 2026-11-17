@@ -1,0 +1,9 @@
+{
+  "place": "none",
+  "title": "Devices",
+  "overlay": {
+    "kind": "dialog",
+    "width": 820,
+    "height": 560
+  }
+}

@@ -10,10 +10,61 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { appHome, checking, exec, machines, nextCommand, notify, panes, run, theme, window as win } from "herdr";
+import { appHome, checking, exec, machines, nextCommand, notify, panes, run, settings, theme, window as win } from "herdr";
 
 const WIDTHS = [260, 340, 440, 560];
 const HEIGHTS = [160, 280, 420, 600];
+const LANGUAGES = { ko: "한국어", en: "English", ja: "日本語", zh: "中文" };
+const language = (value) => {
+  const code = String(value ?? "").trim().toLowerCase().split(/[-_]/)[0];
+  return Object.hasOwn(LANGUAGES, code) ? code : null;
+};
+const TEXT = {
+  en: {
+    title: "To-do", add: "Add a to-do", completed: "To-do done",
+    auto: "Follow Herdr", open: (n) => `${n} open`, clear: (n) => `Clear ${n} done`,
+    missing: "nv is not installed here yet. Run the installer of herdr-neon-violet.",
+    empty: "Nothing yet. Tell Claude or Codex what to do, or add one below.",
+    you: "you", added: "added by you", asked: (agent) => `asked ${agent}`, on: (name) => ` on ${name}`,
+    agent: (title) => `agent is on: ${title}`, go: "Go to agent", reopen: "Reopen", done: "Mark done", remove: "Remove",
+    finished: (start, end, duration) => `${start} → ${end} · took ${duration}`,
+    started: (start, duration) => `started ${start} · ${duration} so far`,
+    units: ["s", "m", "h"],
+  },
+  ko: {
+    title: "할 일", add: "할 일 추가", completed: "할 일 완료",
+    auto: "Herdr 설정 따르기", open: (n) => `진행 ${n}개`, clear: (n) => `완료 ${n}개 지우기`,
+    missing: "nv가 설치되어 있지 않습니다. herdr-neon-violet 설치 프로그램을 실행하세요.",
+    empty: "아직 할 일이 없습니다. Claude나 Codex에게 작업을 요청하거나 아래에서 추가하세요.",
+    you: "나", added: "직접 추가함", asked: (agent) => `${agent}에게 요청함`, on: (name) => ` · ${name}에서`,
+    agent: (title) => `에이전트 위치: ${title}`, go: "에이전트로 이동", reopen: "다시 열기", done: "완료 처리", remove: "삭제",
+    finished: (start, end, duration) => `${start} → ${end} · ${duration} 소요`,
+    started: (start, duration) => `${start} 시작 · ${duration} 경과`,
+    units: ["초", "분", "시간"],
+  },
+  ja: {
+    title: "やること", add: "やることを追加", completed: "やることが完了",
+    auto: "Herdrの設定に従う", open: (n) => `未完了 ${n}件`, clear: (n) => `完了 ${n}件を削除`,
+    missing: "nvがまだインストールされていません。herdr-neon-violetのインストーラーを実行してください。",
+    empty: "まだありません。ClaudeやCodexに作業を依頼するか、下から追加してください。",
+    you: "自分", added: "自分で追加", asked: (agent) => `${agent}に依頼`, on: (name) => ` · ${name}で実行`,
+    agent: (title) => `エージェントの場所: ${title}`, go: "エージェントへ", reopen: "再開", done: "完了にする", remove: "削除",
+    finished: (start, end, duration) => `${start} → ${end} · 所要時間 ${duration}`,
+    started: (start, duration) => `${start} 開始 · ${duration} 経過`,
+    units: ["秒", "分", "時間"],
+  },
+  zh: {
+    title: "待办", add: "添加待办事项", completed: "待办已完成",
+    auto: "跟随 Herdr 设置", open: (n) => `待办 ${n}项`, clear: (n) => `清除 ${n}项已完成`,
+    missing: "尚未安装 nv。请运行 herdr-neon-violet 安装程序。",
+    empty: "暂无待办事项。请让 Claude 或 Codex 执行任务，或在下方添加。",
+    you: "我", added: "自己添加", asked: (agent) => `已委托 ${agent}`, on: (name) => ` · 在 ${name} 上运行`,
+    agent: (title) => `智能体位置：${title}`, go: "前往智能体", reopen: "重新打开", done: "标为完成", remove: "删除",
+    finished: (start, end, duration) => `${start} → ${end} · 用时 ${duration}`,
+    started: (start, duration) => `${start} 开始 · 已过 ${duration}`,
+    units: ["秒", "分", "小时"],
+  },
+};
 const quote = (a) => `'${String(a).replace(/'/g, `'\\''`)}'`;
 const stored = (key, fallback) => {
   const raw = localStorage.getItem(key), n = Number(raw);
@@ -29,10 +80,11 @@ const clock = (secs) => {
   const today = new Date().toDateString() === d.toDateString();
   return `${today ? "" : `${d.getMonth() + 1}/${d.getDate()} `}${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
-const span = (secs) => {
-  if (secs < 60) return `${Math.max(1, Math.round(secs))}s`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m`;
-  return `${Math.floor(secs / 3600)}h ${Math.round((secs % 3600) / 60)}m`;
+const span = (secs, l) => {
+  const [s, m, h] = l.units;
+  if (secs < 60) return `${Math.max(1, Math.round(secs))}${s}`;
+  if (secs < 3600) return `${Math.round(secs / 60)}${m}`;
+  return `${Math.floor(secs / 3600)}${h} ${Math.round((secs % 3600) / 60)}${m}`;
 };
 
 export default class Todos extends View {
@@ -45,8 +97,10 @@ export default class Todos extends View {
     this.w = stored("w", 1);
     this.h = stored("h", 1);
     this.collapsed = localStorage.getItem("collapsed") === "1";
-    this.input = InputState.new({ placeholder: "Add a to-do" });
-    this.input.on("change", () => { this.text = this.input.value(); });
+    this.language = language(localStorage.getItem("language")) ?? "auto";
+    this.languageMenu = false;
+    this.input = InputState.new();
+    this.input.on("change", (_e, cx) => { this.text = this.input.value(); cx.notify(); });
     this.input.on("submit", (_e, cx) => this.add(cx));
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
@@ -55,7 +109,9 @@ export default class Todos extends View {
     cx.spawn(async (cx) => {
       for (;;) {
         const command = await nextCommand();
-        if (command === "details") {
+        if (command.startsWith("language:")) {
+          this.setLanguage(command.slice("language:".length), cx);
+        } else if (command === "details") {
           const first = this.items.find((it) => !it.done) ?? this.items[0];
           const key = first ? `${first.on ?? "local"}-${first.id}` : null;
           this.open = this.open === key ? null : key;
@@ -68,6 +124,19 @@ export default class Todos extends View {
     });
     cx.timer.every(4000, (cx) => this.refresh(cx));
     this.refresh(cx);
+  }
+
+  locale() {
+    const s = settings();
+    return language(this.language) ?? language(s.language) ?? language(s.locale) ?? "en";
+  }
+
+  setLanguage(value, cx) {
+    if (value !== "auto" && !Object.hasOwn(LANGUAGES, value)) return;
+    this.language = value;
+    this.languageMenu = false;
+    localStorage.setItem("language", value);
+    cx.notify();
   }
 
   // Runs `nv todo ...` here, or on another machine through its shell.
@@ -98,7 +167,7 @@ export default class Todos extends View {
         if (this.known) {
           for (const it of items) {
             if (it.done && this.known.get(`${it.on}/${it.id}`) === false && it.source !== "me") {
-              notify({ title: "To-do done", body: it.text, level: "success", timeout: 6000 });
+              notify({ title: TEXT[this.locale()].completed, body: it.text, level: "success", timeout: 6000 });
             }
           }
         }
@@ -148,27 +217,29 @@ export default class Todos extends View {
   }
 
   details(it, key, t) {
+    const l = TEXT[this.locale()];
     const pane = this.agentOf(it);
     const folder = it.cwd ? String(it.cwd).replace(/\\/g, "/").replace(/\/+$/, "").split("/").slice(-2).join("/") : "";
     const when = it.done && it.done_at
-      ? `${clock(it.created)} → ${clock(it.done_at)} · took ${span(it.done_at - it.created)}`
-      : `started ${clock(it.created)} · ${span(Date.now() / 1000 - it.created)} so far`;
+      ? l.finished(clock(it.created), clock(it.done_at), span(it.done_at - it.created, l))
+      : l.started(clock(it.created), span(Date.now() / 1000 - it.created, l));
     const full = it.detail && it.detail !== it.text ? it.detail : it.text;
     return v_flex().mx(6).mb(4).p(8).gap(6).rounded(6).bg(t.surface).border_1().border_color(t.border)
       .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
       .child(div().id(`todo-full-${key}`).max_h(180).overflow_y_scrollbar().text_size(12).text_color(t.foreground).child(full))
       .child(v_flex().gap(2).text_size(10).text_color(t.dim)
-        .child(div().child(`${it.source === "me" ? "added by you" : `asked ${it.source}`}${it.on ? ` on ${it.on}` : ""}${folder ? ` · ${folder}` : ""}`))
+        .child(div().child(`${it.source === "me" ? l.added : l.asked(it.source)}${it.on ? l.on(it.on) : ""}${folder ? ` · ${folder}` : ""}`))
         .child(div().child(when))
-        .when(Boolean(pane?.title), (e) => e.child(div().truncate().child(`agent is on: ${pane.title}`))))
+        .when(Boolean(pane?.title), (e) => e.child(div().truncate().child(l.agent(pane.title)))))
       .child(h_flex().gap(4)
-        .when(Boolean(pane), (e) => e.child(this.chip(`todo-go-${key}`, "Go to agent", t, () => run("agent.focus", { terminal: pane.terminal }), t.accent)))
-        .child(this.chip(`todo-toggle-${key}`, it.done ? "Reopen" : "Mark done", t, (cx) => this.change(cx, ["toggle", it.id], it.on), it.done ? t.muted : t.done))
+        .when(Boolean(pane), (e) => e.child(this.chip(`todo-go-${key}`, l.go, t, () => run("agent.focus", { terminal: pane.terminal }), t.accent)))
+        .child(this.chip(`todo-toggle-${key}`, it.done ? l.reopen : l.done, t, (cx) => this.change(cx, ["toggle", it.id], it.on), it.done ? t.muted : t.done))
         .child(div().flex_1())
-        .child(this.chip(`todo-remove-${key}`, "Remove", t, (cx) => { this.open = null; this.change(cx, ["rm", it.id], it.on); }, t.blocked)));
+        .child(this.chip(`todo-remove-${key}`, l.remove, t, (cx) => { this.open = null; this.change(cx, ["rm", it.id], it.on); }, t.blocked)));
   }
 
   row(it, t) {
+    const source = it.source === "me" ? TEXT[this.locale()].you : it.source;
     const key = `${it.on ?? "local"}-${it.id}`;
     const color = it.source === "claude" ? t.accent : it.source === "codex" ? t.idle : t.muted;
     const opened = this.open === key;
@@ -184,21 +255,26 @@ export default class Todos extends View {
         .on_click((_e, cx) => { cx.stop_propagation(); this.change(cx, ["toggle", it.id], it.on); })
         .child(it.done ? "✓" : ""))
       .child(div().flex_1().min_w(0).truncate().text_color(it.done ? t.dim : t.foreground).child(it.text))
-      .child(div().flex_none().text_size(10).text_color(color).child(it.on ? `${it.source} · ${it.on}` : it.source))
+      .child(div().flex_none().text_size(10).text_color(color).child(it.on ? `${source} · ${it.on}` : source))
       .child(div().flex_none().text_size(10).text_color(t.dim).child(opened ? "▾" : "▸"));
     return opened ? v_flex().gap(2).child(line).child(this.details(it, key, t)) : line;
   }
 
   render() {
     const t = theme();
+    const locale = this.locale(), l = TEXT[locale];
     const open = this.items.filter((it) => !it.done).length;
     const done = this.items.length - open;
     return v_flex().w(WIDTHS[this.w]).p(10).gap(6).text_size(12).text_color(t.foreground)
-      .child(h_flex().gap(6).items_center()
-        .child(div().font_semibold().text_size(13).text_color(t.accent).child("To-do"))
+      .child(h_flex().gap(4).items_center()
+        .child(div().font_semibold().text_size(13).text_color(t.accent).child(l.title))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(open ? t.working : t.border).text_size(10)
-          .text_color(open ? t.working : t.muted).child(`${open} open`))
+          .text_color(open ? t.working : t.muted).child(l.open(open)))
         .child(div().flex_1())
+        .child(this.chip("todos-language", "文", t, (cx) => {
+          this.languageMenu = !this.languageMenu;
+          cx.notify();
+        }))
         .child(this.chip("todos-w", "↔", t, (cx) => this.resize("w", cx)))
         .child(this.chip("todos-h", "↕", t, (cx) => this.resize("h", cx)))
         .child(this.chip("todos-fold", this.collapsed ? "+" : "–", t, (cx) => {
@@ -206,17 +282,22 @@ export default class Todos extends View {
           localStorage.setItem("collapsed", this.collapsed ? "1" : "0");
           cx.notify();
         })))
+      .when(this.languageMenu, (el) => el.child(v_flex().gap(2)
+        .children([["auto", l.auto], ...Object.entries(LANGUAGES)].map(([code, label]) =>
+          this.chip(`todos-language-${code}`, `${this.language === code ? "✓ " : ""}${label}`, t,
+            (cx) => this.setLanguage(code, cx), this.language === code ? t.accent : t.muted)))))
       .when(!this.collapsed, (el) => el
         .child(v_flex().id("todos-list").max_h(HEIGHTS[this.h]).overflow_y_scrollbar().gap(1)
           .children(this.items.map((it) => this.row(it, t)))
           .when(!this.items.length, (e) => e.child(div().px(6).py(8).text_color(t.dim)
-            .child(this.missing ? "nv is not installed here yet. Run the installer of herdr-neon-violet." : "Nothing yet. Tell Claude or Codex what to do, or add one below."))))
+            .child(this.missing ? l.missing : l.empty))))
         .child(h_flex().gap(6).items_center()
-          .child(div().id("todos-input").flex_1().min_w(0).h(26).px(8).flex().items_center().rounded(6).border_1()
+          .child(div().id("todos-input").relative().flex_1().min_w(0).h(26).px(8).flex().items_center().rounded(6).border_1()
             .border_color(this.typing ? t.accent : t.border).cursor_text()
             .on_mouse_down("left", (_e, cx) => cx.stop_propagation())
-            .child(Input.new(this.input).h_full().text_size(12).text_color(t.foreground)))
-          .when(done > 0, (e) => e.child(this.chip("todos-clear", `Clear ${done} done`, t, (cx) => {
+            .when(!this.text, (e) => e.child(div().id("todos-placeholder").absolute().left(8).text_color(t.dim).child(l.add)))
+            .child(Input.new(this.input).w_full().h_full().text_size(12).text_color(t.foreground)))
+          .when(done > 0, (e) => e.child(this.chip("todos-clear", l.clear(done), t, (cx) => {
             for (const on of new Set(this.items.filter((it) => it.done).map((it) => it.on))) this.change(cx, ["clear-done"], on);
           })))));
   }

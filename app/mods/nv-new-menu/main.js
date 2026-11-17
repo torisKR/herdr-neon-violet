@@ -50,6 +50,12 @@ export default class NewMenu extends View {
       .child(icon).child(div().flex_1().child(name)).child(div().text_size(11).text_color(t.dim).child(hint));
   }
 
+  allAgents() {
+    const origin = shared("layout");
+    if (typeof origin === "string" && origin !== "all-agents") setShared("all-agents.return-layout", origin);
+    run("layout.switch", { name: "all-agents" });
+  }
+
   launch(options) {
     if (this.source.pane) run("pane.split", { direction: "right", pane: this.source.pane, ...options });
     else if (this.source.space) run("tab.new", { space: this.source.space, ...options });
@@ -108,7 +114,7 @@ export default class NewMenu extends View {
       // neon-violet tools
       .child(div().h(1).mx(4).my(5).bg(t.border))
       .child(div().px(9).pt(2).pb(4).text_size(11).text_color(t.dim).child("Tools"))
-      .child(this.row("nv-all-agents", div().w(14).text_color(t.accent).child("▦"), "ALL agents", () => run("layout.switch", { name: "all-agents" }), shortcut("layout.switch:all-agents")))
+      .child(this.row("nv-all-agents", div().w(14).text_color(t.accent).child("▦"), "ALL agents", () => this.allAgents(), shortcut("layout.switch:all-agents")))
       .child(this.row("nv-devices", div().w(14).text_color(t.done).child("▣"), "Devices", () => run("mod.open", { name: "devices" }), shortcut("mod.open:devices")))
       .child(this.row("nv-prs", div().w(14).text_color(t.working).child("⇄"), "Pull requests",
         () => this.launch({ mod: "prs", props: { cwd: this.source.cwd, on: this.source.on } }), this.source.cwd ? "" : "Focus a terminal", Boolean(this.source.cwd)))

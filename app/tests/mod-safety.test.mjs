@@ -29,8 +29,9 @@ function element() {
 }
 const find = (node, id) => node && typeof node === "object"
   ? node.name === id ? node : node.items?.map(child => find(child, id)).find(Boolean) : null;
+const textOf = node => typeof node === "string" ? node : node?.items?.map(textOf).join("\n") ?? "";
 
-function harness(name, overrides = {}) {
+function harness(name, overrides = {}, storage = new Map()) {
   const tasks = [], failures = [], calls = [], overlays = [];
   const cx = {
     notify() {}, stop_propagation() {},
@@ -52,6 +53,7 @@ function harness(name, overrides = {}) {
     focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: "t", cwd: "/repo" }),
     window: () => ({ platform: "macos" }), appHome: () => "/local/herdr-app",
     shared: () => null, setShared() {}, layout: () => null, keys: () => [],
+    agents: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
     nextCommand: () => new Promise(() => {}),
     run: (name, args) => calls.push({ name, args: plain(args) }),
     openOverlay: spec => overlays.push(plain(spec)), closeOverlay() {},
@@ -71,7 +73,9 @@ function harness(name, overrides = {}) {
     .replace(/^import \{(.*?)\} from "(.*?)";/gm, (_line, names, module) =>
       `const {${names.replace(/\bas\b/g, ":")}} = modules[${JSON.stringify(module)}];`)
     .replace("export default class ", "globalThis.Mod = class ");
-  const sandbox = { modules, localStorage: { getItem: () => null, setItem() {} } };
+  const sandbox = { modules, localStorage: {
+    getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value),
+  } };
   vm.runInNewContext(source, sandbox, { filename: `app/mods/${name}/main.js` });
   const view = new sandbox.Mod();
   view.init({}, cx);
@@ -80,6 +84,106 @@ function harness(name, overrides = {}) {
     assert.deepEqual(failures, []);
   } };
 }
+
+const todoCopy = [
+  ["ko-KR", "할 일", "할 일 추가", "완료 처리", "다시 열기", "완료 1개 지우기", "직접 추가함", "초", "할 일 완료"],
+  ["en-US", "To-do", "Add a to-do", "Mark done", "Reopen", "Clear 1 done", "added by you", "s", "To-do done"],
+  ["ja_JP", "やること", "やることを追加", "完了にする", "再開", "完了 1件を削除", "自分で追加", "秒", "やることが完了"],
+  ["zh-CN", "待办", "添加待办事项", "标为完成", "重新打开", "清除 1项已完成", "自己添加", "秒", "待办已完成"],
+];
+
+for (const [locale, title, placeholder, done, reopen, clear, added, seconds, completed] of todoCopy) {
+  test(`To-do follows Herdr ${locale} for labels, details, elapsed time and completion alerts`, async () => {
+    const notifications = [];
+    const item = { id: "one", source: "codex", text: "original headline", detail: "original instruction", created: 1000, done: false };
+    const h = harness("todos", {
+      settings: () => ({ language: locale }), machines: () => [], notify: value => notifications.push(value),
+      exec: async () => ok({ items: [item] }),
+    });
+    let tree = h.view.render();
+    assert.ok(textOf(tree).includes(title));
+    assert.equal(textOf(find(tree, "todos-placeholder")), placeholder);
+    h.view.items = [item]; h.view.open = "local-one";
+    tree = h.view.render();
+    assert.equal(textOf(find(tree, "todo-toggle-local-one")), done);
+    assert.ok(textOf(tree).includes("original instruction"));
+
+    h.view.items = [{ ...item, source: "me", done: true, done_at: 1045 }];
+    tree = h.view.render();
+    assert.equal(textOf(find(tree, "todo-toggle-local-one")), reopen);
+    assert.equal(textOf(find(tree, "todos-clear")), clear);
+    assert.ok(textOf(tree).includes(added));
+    assert.ok(textOf(tree).includes(`45${seconds}`));
+
+    await h.view.refresh(h.cx); await h.settle();
+    item.done = true; item.done_at = 1045;
+    h.view.refresh(h.cx); await h.settle();
+    assert.deepEqual(plain(notifications), [{ title: completed, body: "original headline", level: "success", timeout: 6000 }]);
+  });
+}
+
+test("To-do language menu persists Korean, preserves drafts and returns to live Herdr settings", () => {
+  const storage = new Map();
+  let locale = "en";
+  const overrides = { settings: () => ({ locale }) };
+  const h = harness("todos", overrides, storage);
+  const input = h.view.input;
+  input.set_value("작성 중인 할 일");
+  find(h.view.render(), "todos-language").events.on_click({}, h.cx);
+  const menu = h.view.render();
+  for (const code of ["auto", "ko", "en", "ja", "zh"]) assert.ok(find(menu, `todos-language-${code}`));
+  find(menu, "todos-language-ko").events.on_click({}, h.cx);
+  assert.equal(storage.get("language"), "ko");
+  assert.equal(h.view.locale(), "ko");
+  assert.equal(h.view.languageMenu, false);
+  assert.equal(h.view.input, input);
+  assert.equal(h.view.input.value(), "작성 중인 할 일");
+  assert.equal(find(h.view.render(), "todos-placeholder"), undefined);
+
+  locale = "ja";
+  assert.equal(h.view.locale(), "ko");
+  const reloaded = harness("todos", overrides, storage);
+  assert.equal(reloaded.view.locale(), "ko");
+  reloaded.view.setLanguage("auto", reloaded.cx);
+  assert.equal(reloaded.view.locale(), "ja");
+  locale = "zh-Hans-CN";
+  assert.equal(reloaded.view.locale(), "zh");
+  assert.equal(harness("todos", overrides, storage).view.locale(), "zh");
+});
+
+test("To-do safely falls back for absent, unsupported and malformed language preferences", () => {
+  for (const value of [null, "", "fr-FR", "constructor", "toString", {}, 123]) {
+    const storage = new Map([["language", value]]);
+    const h = harness("todos", { settings: () => ({ language: value }) }, storage);
+    assert.equal(h.view.locale(), "en");
+    assert.doesNotThrow(() => h.view.render());
+    h.view.setLanguage("invalid", h.cx);
+    assert.equal(storage.get("language"), value);
+  }
+  const h = harness("todos", { settings: () => ({ language: "system", locale: " KO_kr " }) });
+  assert.equal(h.view.locale(), "ko");
+});
+
+test("To-do language selection remains available while folded and does not change list actions", () => {
+  const h = harness("todos", { settings: () => ({ language: "ko" }) });
+  h.view.collapsed = true;
+  find(h.view.render(), "todos-language").events.on_click({}, h.cx);
+  find(h.view.render(), "todos-language-ja").events.on_click({}, h.cx);
+  assert.equal(h.view.collapsed, true);
+  const changes = [];
+  h.view.change = (_cx, args, on) => changes.push(plain({ args, on }));
+  h.view.items = [{ id: "remote-item", source: "me", text: "keep this", on: "remote", done: true, created: 1000, done_at: 1060 }];
+  h.view.open = "remote-remote-item"; h.view.collapsed = false;
+  const tree = h.view.render();
+  find(tree, "todo-toggle-remote-remote-item").events.on_click({}, h.cx);
+  find(tree, "todos-clear").events.on_click({}, h.cx);
+  h.view.input.set_value("日本語で入力"); h.view.add(h.cx);
+  assert.deepEqual(changes, [
+    { args: ["toggle", "remote-item"], on: "remote" },
+    { args: ["clear-done"], on: "remote" },
+    { args: ["add", "--source", "me", "日本語で入力"], on: null },
+  ]);
+});
 
 function editor(overrides) {
   const h = harness("editor", { props: () => ({ file: "/repo/file.txt" }), ...overrides });
@@ -164,6 +268,63 @@ test("the + menu captures cwd/machine before overlay focus and passes explicit P
   const menu = harness("nv-new-menu", { props: () => ({ source }) });
   find(menu.view.render(), "nv-prs").events.on_click({}, menu.cx);
   assert.deepEqual(menu.calls[0], { name: "pane.split", args: { direction: "right", pane: "remote/p2", mod: "prs", props: { cwd: "/repo-b", on: "remote" } } });
+});
+
+for (const origin of ["neon-violet", "custom-layout"]) {
+  test(`All agents returns to ${origin} so the + menu keeps its tools`, () => {
+    const values = new Map([["layout", origin]]);
+    const sharedState = {
+      shared: key => values.get(key),
+      setShared: (key, value) => values.set(key, value),
+      layouts: () => ["main", "neon-violet", "all-agents", "custom-layout"],
+    };
+    const menu = harness("nv-new-menu", sharedState);
+    find(menu.view.render(), "nv-all-agents").events.on_click({}, menu.cx);
+    assert.equal(values.get("all-agents.return-layout"), origin);
+    assert.deepEqual(menu.calls, [{ name: "layout.switch", args: { name: "all-agents" } }]);
+    values.set("layout", "all-agents");
+
+    const card = harness("all-agents", { ...sharedState, props: () => ({ cell: "remote/t7" }) });
+    find(card.view.render(), "open-remote_t7").events.on_click({}, card.cx);
+    assert.deepEqual(card.calls, [
+      { name: "layout.switch", args: { name: origin } },
+      { name: "agent.focus", args: { terminal: "remote/t7" } },
+    ]);
+    const board = harness("all-agents", sharedState);
+    find(board.view.render(), "back-to-main").events.on_click({}, board.cx);
+    assert.deepEqual(board.calls, [{ name: "layout.switch", args: { name: origin } }]);
+
+    values.set("layout", origin);
+    const tabs = harness("nv-tabs", sharedState);
+    find(tabs.view.render(), "tab-new").events.on_click({}, tabs.cx);
+    assert.equal(tabs.overlays[0].mod, "nv-new-menu");
+    const returnedMenu = harness("nv-new-menu", { ...sharedState, props: () => tabs.overlays[0].props });
+    for (const id of ["nv-all-agents", "nv-devices", "nv-prs", "nv-browser"]) {
+      assert.ok(find(returnedMenu.view.render(), id));
+    }
+  });
+}
+
+test("All agents uses the pack layout for direct entry and deleted return layouts", () => {
+  for (const remembered of [undefined, "removed-layout", "all-agents", {}]) {
+    const h = harness("all-agents", {
+      shared: key => key === "all-agents.return-layout" ? remembered : null,
+    });
+    find(h.view.render(), "back-to-main").events.on_click({}, h.cx);
+    assert.deepEqual(h.calls, [{ name: "layout.switch", args: { name: "neon-violet" } }]);
+  }
+  const standalone = harness("all-agents", { layouts: () => ["main", "all-agents"] });
+  find(standalone.view.render(), "back-to-main").events.on_click({}, standalone.cx);
+  assert.deepEqual(standalone.calls, [{ name: "layout.switch", args: { name: "main" } }]);
+});
+
+test("reopening All agents never overwrites the original return layout", () => {
+  const values = new Map([["layout", "all-agents"], ["all-agents.return-layout", "neon-violet"]]);
+  const h = harness("nv-new-menu", {
+    shared: key => values.get(key), setShared: (key, value) => values.set(key, value),
+  });
+  find(h.view.render(), "nv-all-agents").events.on_click({}, h.cx);
+  assert.equal(values.get("all-agents.return-layout"), "neon-violet");
 });
 
 function pullRequests(exec = async () => ok([])) {

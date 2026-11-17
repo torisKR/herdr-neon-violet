@@ -10,7 +10,7 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { agents, layout, nextCommand, props, run, setAgentOrder, setShared, shared, theme } from "herdr";
+import { agents, layout, layouts, nextCommand, props, run, setAgentOrder, setShared, shared, theme } from "herdr";
 
 const LAYOUT = "all-agents";
 const FILTERS = ["all", "blocked", "working", "done", "idle"];
@@ -22,6 +22,10 @@ const KEY = { all: "ctrl+a", blocked: "ctrl+b", working: "ctrl+w", done: "ctrl+d
 let lastSig = null;
 
 const currentFilter = () => (FILTERS.includes(shared("all-agents.filter")) ? shared("all-agents.filter") : "all");
+const returnLayout = () => {
+  const available = layouts(), origin = shared("all-agents.return-layout");
+  return origin !== LAYOUT && available.includes(origin) ? origin : available.includes("neon-violet") ? "neon-violet" : "main";
+};
 
 function visibleAgents() {
   const f = currentFilter();
@@ -147,7 +151,7 @@ export default class AllAgents extends View {
           .cursor_pointer()
           .text_color(t.muted)
           .hover((s) => s.bg(t.hover).text_color(t.foreground))
-          .on_click(() => run("layout.switch", { name: "main" }))
+          .on_click(() => run("layout.switch", { name: returnLayout() }))
           .child("Back to Herdr"),
       );
   }
@@ -167,7 +171,7 @@ export default class AllAgents extends View {
       .cursor_pointer()
       .hover((s) => s.bg(t.hover))
       .on_click(() => {
-        run("layout.switch", { name: "main" });
+        run("layout.switch", { name: returnLayout() });
         run("agent.focus", { terminal: address });
       })
       .child(div().flex_none().w(8).h(8).rounded_full().bg(t[status] ?? t.dim))

@@ -100,7 +100,7 @@ In the `all-agents` layout:
 
 - Filter by state with the chips at the top or with `ctrl+d` done, `ctrl+w` working, `ctrl+i` idle, `ctrl+b` blocked, `ctrl+a` all.
 - While this layout is on screen those five keys belong to the filter and do not reach the program in the terminal.
-- Click a card's header to open that agent in the main layout.
+- Click a card's header to open that agent, or “Back to Herdr” to leave the board. When opened from the `+` menu, both return to the layout you came from, keeping its menu tools and To-do list. Direct entry defaults to Neon Violet when installed.
 
 The theme is dark. If the app is set to always use the light appearance, switch it to dark in Settings for the theme to show. Dragging over text already copies in the app, on remote machines too.
 
@@ -149,6 +149,7 @@ The Herdr app shows a floating list at the top right. Each instruction you give 
 - Turn it on for your agents once per machine: `~/.config/herdr-app/bin/nv todo hooks install`. It adds two hooks (prompt submitted, turn ended) to Claude Code's `settings.json` and Codex's `hooks.json`, keeps the hooks you already have, and writes a backup. `nv todo hooks remove` takes them out.
 - `↔` and `↕` change the width and height, `–` folds it, and you can drag it anywhere.
 - From a shell: `nv todo add "text"`, `nv todo done <id>`, `nv todo list`.
+- The `文` button selects Korean, English, Japanese or Simplified Chinese and remembers your choice. “Follow Herdr” (the default) follows Herdr's `language` or `locale` setting, with English as the fallback when none is available or supported.
 
 Each row shows a short headline, and clicking it opens the details: the whole instruction, where it runs, when it started and finished, and a button that takes you to the agent. The headline appears at once from simple rules and is replaced a few seconds later by one written by a small model (Claude Haiku, a separate headless call that uses a few hundred tokens per instruction and adds nothing to the agent's own conversation). Set `NV_TODO_NO_SUMMARY=1` to keep the rule-based headlines and spend no tokens.
 

@@ -636,12 +636,62 @@ test("Unix AVD boot executes NV_EMULATOR with a quoted SDK path", { skip: proces
 test("ADB listener discovery reads only existing server ports and removes duplicate sockets", async () => {
   const requests = [], h = harness("devices", { exec: async (command, args, options) => {
     requests.push({ command, args, options });
-    return ok("p100\nf19\nn127.0.0.1:5037\np200\nf15\nn127.0.0.1:5043\nn[::1]:5043\n");
+    return ok(command === "ps" ? "100 adb -L tcp:5037 fork-server server\n200 adb -L tcp:localhost:5043 fork-server server\n" :
+      "p100\nf19\nn127.0.0.1:5037\nn127.0.0.1:9222\np200\nf15\nn127.0.0.1:5043\nn[::1]:5043\n");
   } });
   assert.deepEqual(plain(await h.view.adbPorts({ machine: "mac", unix: true })), ["5037", "5043"]);
   assert.equal(requests[0].command, "lsof");
   assert.equal(requests[0].options.on, "mac");
   assert.ok(requests[0].args.includes("/^adb$/"));
+});
+
+test("Windows ADB discovery excludes app forwarding ports owned by the server", async () => {
+  const h = harness("devices", { exec: async () => ok([{ command: '"C:\\SDK folder\\adb.exe" -L tcp:5043 fork-server server', ports: [5043, 9222, 8080] }]) });
+  assert.deepEqual(plain(await h.view.adbPorts({ machine: "windows", unix: false })), ["5043"]);
+});
+
+test("a Unix-socket ADB server's TCP forwards are never treated as ADB server endpoints", async () => {
+  const h = harness("devices", { exec: async () => ok([{ command: 'adb -L localfilesystem:/tmp/adb.sock fork-server server', ports: [5037, 9222] }]) });
+  assert.deepEqual(plain(await h.view.adbPorts({ machine: "windows", unix: false })), []);
+});
+
+test("Wi-Fi ADB connections include IPv6 and both secure and legacy mDNS names", async () => {
+  const h = harness("devices");
+  h.view.adbPorts = async () => [];
+  h.view.tool = async (_m, _name, args) => args.includes("devices") ?
+    "List of devices attached\n[fe80::1234%en0]:37123 device model:Phone\nadb-USB123-token._adb-tls-connect._tcp device model:Phone\nadb-USB456._adb._tcp. device model:Phone\n" : "16\n";
+  const data = await h.view.android({ machine: null, unix: true });
+  assert.equal(data.rows.length, 3);
+  assert.ok(data.rows.every(r => !r.emulator && r.connection === "Wi-Fi" && r.detail.includes("Wi-Fi")));
+});
+
+test("Wi-Fi Connect uses this computer's adb and refreshes after a successful connection", async () => {
+  const h = harness("devices"), calls = []; let refreshed = 0;
+  h.view.tool = async (m, name, args) => { calls.push({ m, name, args }); return "connected to 192.168.0.19:37123\n"; };
+  h.view.refresh = () => refreshed++;
+  h.view.wifiInput.set_value("192.168.0.19:37123");
+  find(h.view.render(), "devices-wifi-connect").events.on_click({}, h.cx);
+  h.view.connectWifi(h.cx); // a repeated click while connecting cannot start another request
+  await h.settle();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].m.machine, null);
+  assert.equal(calls[0].m.unix, true);
+  assert.deepEqual(plain(calls[0].args), ["connect", "192.168.0.19:37123"]);
+  assert.equal(refreshed, 1);
+  assert.equal(h.view.noteError, false);
+});
+
+test("Wi-Fi Connect rejects invalid addresses and does not treat adb's exit-zero failures as success", async () => {
+  const h = harness("devices"); let calls = 0;
+  h.view.tool = async () => { calls++; return "failed to connect to 192.168.0.19:37123"; };
+  for (const address of ["", "192.168.0.19", "host:0", "host:65536", "host:5555; echo unsafe"]) {
+    h.view.wifiInput.set_value(address); h.view.connectWifi(h.cx); await h.settle();
+  }
+  assert.equal(calls, 0);
+  h.view.wifiInput.set_value("192.168.0.19:37123"); h.view.connectWifi(h.cx); await h.settle();
+  assert.equal(calls, 1);
+  assert.equal(h.view.noteError, true);
+  assert.equal(h.view.wifiBusy, false);
 });
 
 test("a physical phone on a dedicated ADB server appears and metadata uses the same port", async () => {

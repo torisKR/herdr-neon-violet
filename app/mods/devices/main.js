@@ -5,14 +5,21 @@
 // Opens as a dialog (mod.open:devices). Click a stopped emulator or simulator to boot it.
 
 import { View, div } from "gpui-kit";
-import { h_flex, v_flex } from "gpui-base";
-import { checking, closeOverlay, exec, machines, props, theme } from "herdr";
+import { h_flex, v_flex, Input, InputState } from "gpui-base";
+import { checking, closeOverlay, exec, machines, props, theme, window } from "herdr";
 
 // GUI and remote shells may not inherit Android Studio's SDK paths.
 const SDK_PATH =
   'for sdk in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk" "$HOME/Android/Sdk" "$HOME/Android/sdk"; do if [ -n "$sdk" ]; then PATH="$PATH:$sdk/platform-tools:$sdk/emulator"; fi; done; export PATH; ';
 const quote = value => `'${String(value).replace(/'/g, `'\\''`)}'`;
 const psQuote = value => `'${String(value).replace(/'/g, "''")}'`;
+
+function serverPort(command) {
+  if (!/\b(?:fork-server\s+server|nodaemon\s+server|server\s+nodaemon)\b/.test(command)) return null;
+  const socket = command.match(/(?:^|\s)-L\s+["']?([^\s"']+)/)?.[1];
+  if (socket) return socket.startsWith("tcp:") ? socket.match(/:(\d+)$/)?.[1] ?? null : null;
+  return command.match(/(?:^|\s)-P\s+(\d+)/)?.[1] ?? "5037";
+}
 
 function unixTool(name, args, background = false) {
   const variable = name === "adb" ? "NV_ADB" : name === "emulator" ? "NV_EMULATOR" : null;
@@ -50,6 +57,8 @@ export default class Devices extends View {
     this.note = "";
     this.loading = true;
     this.kinds = new Map(); // machine -> { unix, mac }
+    this.wifiInput = InputState.new();
+    this.wifiInput.on("change", (_e, cx) => cx.notify());
     if (checking()) return;
     cx.timer.every(4000, (cx) => this.refresh(cx));
     this.refresh(cx);
@@ -109,20 +118,37 @@ export default class Devices extends View {
   }
 
   async adbPorts(m) {
-    let ports = [];
+    let servers = [];
     if (m.unix) {
+      const listeners = new Map();
       const out = await tryExec("lsof", ["-nP", "-a", "-c", "/^adb$/", "-iTCP", "-sTCP:LISTEN", "-Fn"], { on: m.machine, timeout: 8000 });
-      if (out !== null) ports = out.split(/\r?\n/).filter(line => line.startsWith("n")).map(line => line.match(/:(\d+)$/)?.[1]);
+      const add = (pid, port) => { if (pid && port) listeners.set(pid, [...(listeners.get(pid) ?? []), port]); };
+      if (out !== null) {
+        let pid;
+        for (const line of out.split(/\r?\n/)) {
+          if (/^p\d+$/.test(line)) pid = line.slice(1);
+          else if (line.startsWith("n")) add(pid, line.match(/:(\d+)$/)?.[1]);
+        }
+      }
       else {
         const sockets = await tryExec("ss", ["-H", "-lntp"], { on: m.machine, timeout: 8000 });
-        ports = (sockets ?? "").split(/\r?\n/).filter(line => line.includes('"adb"')).map(line => line.trim().split(/\s+/)[3]?.match(/:(\d+)$/)?.[1]);
+        for (const line of (sockets ?? "").split(/\r?\n/).filter(line => line.includes('"adb"'))) add(line.match(/pid=(\d+)/)?.[1], line.trim().split(/\s+/)[3]?.match(/:(\d+)$/)?.[1]);
+      }
+      if (listeners.size) {
+        const commands = await tryExec("ps", ["-p", [...listeners.keys()].join(","), "-o", "pid=,args="], { on: m.machine, timeout: 8000 });
+        for (const line of (commands ?? "").split(/\r?\n/)) {
+          const match = line.match(/^\s*(\d+)\s+(.*)$/);
+          if (match) servers.push({ command: match[2], ports: listeners.get(match[1]) ?? [] });
+        }
       }
     } else {
-      const script = "$ids=@(Get-Process adb -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id); if ($ids.Count) { Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ids -contains $_.OwningProcess } | Select-Object -ExpandProperty LocalPort -Unique }";
+      const script = "$listeners=@(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue); $servers=@(foreach ($p in (Get-CimInstance Win32_Process -Filter \"Name='adb.exe'\" -ErrorAction SilentlyContinue)) { [pscustomobject]@{ command=$p.CommandLine; ports=@($listeners | Where-Object { $_.OwningProcess -eq $p.ProcessId } | Select-Object -ExpandProperty LocalPort) } }); ConvertTo-Json -InputObject $servers -Depth 3 -Compress";
       const out = await tryExec("powershell", ["-NoProfile", "-Command", script], { on: m.machine, timeout: 8000 });
-      ports = (out ?? "").split(/\r?\n/).map(line => line.trim());
+      try { const parsed = JSON.parse(out ?? "[]"); if (Array.isArray(parsed)) servers = parsed; } catch {}
     }
-    return [...new Set(ports.filter(port => /^\d+$/.test(port ?? "") && Number(port) > 0 && Number(port) <= 65535))];
+    // adb also owns app forwarding sockets. Only query the socket named by its server command.
+    return [...new Set(servers.map(s => ({ ...s, port: serverPort(String(s.command ?? "")) }))
+      .filter(s => /^\d+$/.test(s.port ?? "") && Number(s.port) > 0 && Number(s.port) <= 65535 && s.ports?.map(String).includes(s.port)).map(s => s.port))];
   }
 
   async android(m) {
@@ -144,7 +170,7 @@ export default class Devices extends View {
         state: match[2] === "device" ? "online" : match[2],
         name: (model ? model.slice(6) : match[1]).replace(/_/g, " "),
         emulator: match[1].startsWith("emulator-"),
-        connection: /(?:^|\s)usb:/.test(match[3] ?? "") ? "USB" : /:\d+$|\._adb-tls-connect\._tcp\.?$/.test(match[1]) ? "Wi-Fi" : "physical device",
+        connection: /(?:^|\s)usb:/.test(match[3] ?? "") ? "USB" : /:\d+$|\._adb(?:-tls-connect)?\._tcp\.?$/.test(match[1]) ? "Wi-Fi" : "physical device",
         adbPort: port,
         detail: "",
         };
@@ -201,6 +227,31 @@ export default class Devices extends View {
     return rows;
   }
 
+  connectWifi(cx) {
+    if (this.wifiBusy) return;
+    const address = this.wifiInput.value().trim();
+    const endpoint = address.match(/^(?:[a-z0-9][a-z0-9._-]*|\[[0-9a-f:.]+(?:%[a-z0-9_.-]+)?\]):(\d{1,5})$/i);
+    if (!endpoint || Number(endpoint[1]) < 1 || Number(endpoint[1]) > 65535) {
+      this.note = "Enter the Wireless debugging connection address as IP:port";
+      this.noteError = true; cx.notify(); return;
+    }
+    this.wifiBusy = true; this.noteError = false;
+    this.note = `Connecting to ${address}…`; cx.notify();
+    cx.spawn(async cx => {
+      try {
+        const out = await this.tool({ machine: null, unix: window().platform !== "windows" }, "adb", ["connect", address], 15000);
+        if (!out || !/^(?:already )?connected to\s/i.test(out.trim())) {
+          this.note = out?.trim().slice(0, 180) || "Connection failed. Enable Wireless debugging and pair this computer first.";
+          this.noteError = true;
+        } else {
+          this.note = `Wi-Fi connected · ${address}`;
+          this.refresh(cx);
+        }
+      } catch (error) { this.note = `Connection failed: ${String(error.message ?? error).slice(0, 140)}`; this.noteError = true; }
+      finally { this.wifiBusy = false; cx.notify(); }
+    });
+  }
+
   boot(row, cx) {
     if (row.state !== "stopped") return;
     this.note = `Booting ${row.name}…`;
@@ -246,7 +297,7 @@ export default class Devices extends View {
           .gap(10)
           .items_center()
           .child(div().font_semibold().text_size(15).text_color(t.accent).child("Devices"))
-          .child(div().text_color(t.muted).child(this.loading ? "scanning…" : `${physical} physical Android · ${online} connected · ${total - online} not connected`))
+          .child(div().text_color(t.muted).child(this.loading ? "scanning…" : `${physical} Android connections · ${online} online · ${total - online} not connected`))
           .child(div().flex_1())
           .child(div().id("devices-refresh").px(8).py(2).rounded(6).cursor_pointer().text_color(t.muted)
             .hover(s => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.refresh(cx)).child("Refresh"))
@@ -263,6 +314,14 @@ export default class Devices extends View {
               .child("Close"),
           ),
       )
+      .child(h_flex().flex_none().h(34).gap(8).items_center()
+        .child(div().flex_none().text_size(11).text_color(t.muted).child("Wi-Fi ADB · This computer"))
+        .child(div().id("devices-wifi-address").relative().flex_1().h(30).px(8).flex().items_center().rounded(6).border_1().border_color(t.border)
+          .when(!this.wifiInput.value(), el => el.child(div().absolute().left(8).text_color(t.dim).text_size(12).child("IP:port · 192.168.1.20:37123")))
+          .child(Input.new(this.wifiInput).w_full().h_full()))
+        .child(div().id("devices-wifi-connect").flex_none().px(10).py(5).rounded(6).bg(t.raised).cursor_pointer()
+          .on_click((_e, cx) => this.connectWifi(cx)).child(this.wifiBusy ? "Connecting…" : "Connect")))
+      .child(div().flex_none().text_size(10).text_color(t.dim).child("Use the connection port from Android Wireless debugging. Pair with this computer first."))
       .child(
         v_flex()
           .id("devices-list")

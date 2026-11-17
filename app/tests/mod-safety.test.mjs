@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -55,7 +58,7 @@ function harness(name, overrides = {}, storage = new Map()) {
     focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: "t", cwd: "/repo" }),
     home: () => "/home/test", window: () => ({ platform: "macos" }), appHome: () => "/local/herdr-app",
     shared: () => null, setShared() {}, layout: () => null, keys: () => [],
-    agents: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
+    agents: () => [], machines: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
     nextCommand: () => new Promise(() => {}),
     run: (name, args) => calls.push({ name, args: plain(args) }),
     openOverlay: spec => overlays.push(plain(spec)), closeOverlay() {},
@@ -503,3 +506,83 @@ for (const mod of ["editor", "nv-code"]) {
     assert.equal(h.view.state.value(), html);
   });
 }
+
+test("ADB inventory includes USB and Wi-Fi physical devices separately from running emulators", async () => {
+  const h = harness("devices");
+  h.view.tool = async (_m, _name, args) => args[0] === "devices" ?
+    "List of devices attached\r\n  USB123 device usb:1-2 product:phone model:Galaxy_Test transport_id:1\r\n192.168.1.7:37123 device model:Pixel_9\r\nemulator-5554 device model:sdk_gphone\r\nLOCKED unauthorized usb:1-3\r\nOLD offline\r\nDENIED no permissions (user is not in the plugdev group)\r\n" :
+    args.includes("getprop") ? "16\n" : args.includes("emu") ? "qa_avd\nOK\n" : "";
+  const android = await h.view.android({ machine: null, unix: true });
+  assert.equal(android.missing, false);
+  assert.equal(android.rows.length, 6);
+  assert.equal(android.rows[0].name, "Galaxy Test");
+  assert.equal(android.rows[0].detail, "Android 16 · USB");
+  assert.equal(android.rows[1].detail, "Android 16 · Wi-Fi");
+  assert.equal(android.rows[2].emulator, true);
+  assert.equal(android.rows[2].name, "qa avd");
+  assert.deepEqual(plain(android.rows.slice(3).map(r => r.state)), ["unauthorized", "offline", "no permissions"]);
+  h.view.kinds.set(null, { unix: true, mac: false });
+  h.view.avds = async () => [];
+  const group = await h.view.scan(null);
+  assert.equal(group.sections[0].title, "Android devices · ADB");
+  assert.equal(group.sections[0].rows.length, 5);
+  assert.equal(group.sections[1].rows[0].id, "emulator-5554");
+});
+
+test("ADB inventory does not discard a first device line when the header is absent", async () => {
+  const h = harness("devices");
+  h.view.tool = async (_m, _name, args) => args[0] === "devices" ? "USB123 unauthorized\n" : "";
+  assert.equal((await h.view.android({})).rows[0].id, "USB123");
+});
+
+test("remote Windows SDK discovery stays on that machine and handles quoted arguments as data", async () => {
+  const commands = [];
+  const h = harness("devices", { exec: async (command, args, options) => { commands.push({ command, args, options }); return ok("List of devices attached\nUSB123 device model:Phone\n"); } });
+  await h.view.tool({ machine: "windows", unix: false }, "adb", ["-s", "phone's-id", "get-state"]);
+  assert.equal(commands[0].command, "powershell");
+  assert.equal(commands[0].options.on, "windows");
+  const script = commands[0].args.at(-1);
+  assert.ok(script.includes("$env:ANDROID_HOME"));
+  assert.ok(script.includes("$env:LOCALAPPDATA"));
+  assert.ok(script.includes("'platform-tools\\adb.exe'"));
+  assert.ok(script.includes("'phone''s-id'"));
+});
+
+test("a remote physical device is rendered above the local stopped emulator catalog", () => {
+  const h = harness("devices");
+  h.view.groups = [
+    { machine: null, sections: [{ title: "Android emulators · not running", rows: [{ kind: "avd", id: "catalog", name: "Stopped catalog", state: "stopped" }] }] },
+    { machine: "windows", sections: [{ title: "Android devices · ADB", rows: [{ kind: "android", id: "USB123", name: "Connected phone", state: "online" }] }] },
+  ];
+  const text = textOf(h.view.render());
+  assert.ok(text.indexOf("Connected phone") < text.indexOf("Stopped catalog"));
+  assert.ok(find(h.view.render(), "devices-refresh"));
+});
+
+test("a slow remote machine does not hide the completed local ADB inventory", async () => {
+  const slow = deferred(), h = harness("devices", { machines: () => [{ name: "slow", layout: "ready" }] });
+  h.view.scan = machine => machine ? slow.promise : Promise.resolve({ machine: null, sections: [{ title: "ADB", rows: [{ id: "USB123", state: "online" }] }] });
+  h.view.refresh(h.cx); await h.settle();
+  assert.equal(h.view.groups[0].sections[0].rows[0].id, "USB123");
+  assert.equal(h.view.groups[1].loading, true);
+  slow.resolve({ machine: "slow", sections: [] }); await h.settle();
+  assert.equal(h.view.busy, false);
+});
+
+test("Unix ADB discovery executes custom SDK and NV_ADB paths with spaces and quotes", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "nv-adb-"));
+  try {
+    const sdk = path.join(root, "SDK's folder"), bin = path.join(sdk, "platform-tools", "adb");
+    mkdirSync(path.dirname(bin), { recursive: true });
+    writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+    for (const override of [false, true]) {
+      const h = harness("devices", { exec: async (command, args) => {
+        const env = { PATH: "/usr/bin:/bin", HOME: root, ANDROID_HOME: override ? "" : sdk, NV_ADB: override ? bin : "" };
+        const r = spawnSync(command, args, { env, encoding: "utf8" });
+        return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+      } });
+      const result = await h.view.tool({ machine: null, unix: true }, "adb", ["-s", "phone's-id", "get-state"]);
+      assert.equal(result, "-s\nphone's-id\nget-state\n");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

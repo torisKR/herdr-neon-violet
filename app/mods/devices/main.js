@@ -6,11 +6,25 @@
 
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { checking, closeOverlay, exec, home, machines, props, theme } from "herdr";
+import { checking, closeOverlay, exec, machines, props, theme } from "herdr";
 
-// Android Studio's default SDK folders, added to PATH on macOS and Linux.
+// GUI and remote shells may not inherit Android Studio's SDK paths.
 const SDK_PATH =
-  'PATH="$PATH:$HOME/Library/Android/sdk/platform-tools:$HOME/Library/Android/sdk/emulator:$HOME/Android/Sdk/platform-tools:$HOME/Android/Sdk/emulator"; ';
+  'for sdk in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Library/Android/sdk" "$HOME/Android/Sdk" "$HOME/Android/sdk"; do if [ -n "$sdk" ]; then PATH="$PATH:$sdk/platform-tools:$sdk/emulator"; fi; done; export PATH; ';
+const quote = value => `'${String(value).replace(/'/g, `'\\''`)}'`;
+const psQuote = value => `'${String(value).replace(/'/g, "''")}'`;
+
+function windowsTool(name, args) {
+  const sub = name === "adb" ? "platform-tools" : "emulator";
+  const variable = name === "adb" ? "NV_ADB" : "NV_EMULATOR";
+  return `[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); ` +
+    `$bins=@($env:${variable}); $found=Get-Command ${psQuote(name + ".exe")} -ErrorAction SilentlyContinue; if ($found) { $bins+= $found.Source }; ` +
+    `$roots=@($env:ANDROID_HOME,$env:ANDROID_SDK_ROOT); foreach ($scope in @('User','Machine')) { foreach ($key in @('ANDROID_HOME','ANDROID_SDK_ROOT')) { $roots+=[Environment]::GetEnvironmentVariable($key,$scope) } }; ` +
+    `if ($env:LOCALAPPDATA) { $roots+=(Join-Path $env:LOCALAPPDATA 'Android\\Sdk') }; ` +
+    `foreach ($root in $roots) { if ($root) { $bins+=(Join-Path $root ${psQuote(sub + "\\" + name + ".exe")}) } }; ` +
+    `foreach ($scope in @('User','Machine')) { foreach ($dir in ([Environment]::GetEnvironmentVariable('Path',$scope) -split ';')) { if ($dir) { $bins+=(Join-Path ([Environment]::ExpandEnvironmentVariables($dir.Trim('"'))) ${psQuote(name + ".exe")}) } } }; ` +
+    `foreach ($bin in $bins) { if ($bin -and (Test-Path -LiteralPath $bin -PathType Leaf)) { & $bin ${args.map(psQuote).join(" ")}; exit $LASTEXITCODE } }; exit 127`;
+}
 
 async function tryExec(command, args, options) {
   try {
@@ -32,18 +46,17 @@ export default class Devices extends View {
     this.refresh(cx);
   }
 
-  // Runs a tool on the shown space's machine; through sh on macOS/Linux so the SDK folders are on PATH.
+  // Each row keeps its machine; SDK discovery also runs on that machine.
   async tool(m, name, args, timeout = 10000) {
     const on = m.machine;
     if (m.unix) {
-      const quoted = [name, ...args].map((a) => `'${String(a).replace(/'/g, `'\\''`)}'`).join(" ");
-      return tryExec("sh", ["-c", SDK_PATH + quoted], { on, timeout });
+      const variable = name === "adb" ? "NV_ADB" : name === "emulator" ? "NV_EMULATOR" : null;
+      const command = [name, ...args].map(quote).join(" ");
+      const override = variable ? `if [ -n "\${${variable}:-}" ]; then "$${variable}" ${args.map(quote).join(" ")}; else ${command}; fi` : command;
+      return tryExec("sh", ["-c", SDK_PATH + override], { on, timeout });
     }
-    const direct = await tryExec(name, args, { on, timeout });
-    if (direct !== null || on) return direct;
-    // Windows, this computer: Android Studio's default SDK folder
-    const sub = name === "adb" ? "platform-tools" : "emulator";
-    return tryExec(`${home()}\\AppData\\Local\\Android\\Sdk\\${sub}\\${name}.exe`, args, { timeout });
+    if (name === "adb" || name === "emulator") return tryExec("powershell", ["-NoProfile", "-Command", windowsTool(name, args)], { on, timeout });
+    return tryExec(name, args, { on, timeout });
   }
 
   refresh(cx) {
@@ -52,7 +65,13 @@ export default class Devices extends View {
     cx.spawn(async (cx) => {
       try {
         const names = [null, ...machines().filter((m) => m.name && m.layout !== "unavailable").map((m) => m.name)];
-        this.groups = await Promise.all([...new Set(names)].map((machine) => this.scan(machine)));
+        const order = [...new Set(names)];
+        this.groups = order.map(machine => this.groups.find(g => g.machine === machine) ?? { machine, sections: [], loading: true });
+        await Promise.all(order.map(async machine => {
+          const group = await this.scan(machine);
+          this.groups = this.groups.map(g => g.machine === machine ? group : g);
+          cx.notify();
+        }));
       } finally {
         this.loading = false;
         this.busy = false;
@@ -64,9 +83,9 @@ export default class Devices extends View {
   async scan(machine) {
     if (!this.kinds.has(machine)) {
       const uname = await tryExec("uname", ["-s"], { on: machine, timeout: 8000 });
-      this.kinds.set(machine, { unix: uname !== null, mac: (uname ?? "").trim() === "Darwin" });
+      if (uname !== null) this.kinds.set(machine, { unix: true, mac: uname.trim() === "Darwin" });
     }
-    const m = { machine, ...this.kinds.get(machine) };
+    const m = { machine, unix: false, mac: false, ...this.kinds.get(machine) };
     const [android, sims] = await Promise.all([this.android(m), this.simulators(m)]);
     const stopped = await this.avds(m, android.rows);
     const tag = (rows) => rows.map((r) => ({ ...r, m }));
@@ -74,7 +93,8 @@ export default class Devices extends View {
       machine,
       adbMissing: android.missing,
       sections: [
-        { title: "Android · connected", rows: tag(android.rows) },
+        { title: "Android devices · ADB", rows: tag(android.rows.filter(r => !r.emulator)) },
+        { title: "Android emulators · running", rows: tag(android.rows.filter(r => r.emulator)) },
         { title: "iOS simulators · running", rows: tag(sims.filter((s) => s.state === "online")) },
         { title: "Android emulators · not running", rows: tag(stopped) },
         { title: "iOS simulators · not running", rows: tag(sims.filter((s) => s.state !== "online")) },
@@ -86,8 +106,8 @@ export default class Devices extends View {
     const out = await this.tool(m, "adb", ["devices", "-l"]);
     if (out === null) return { missing: true, rows: [] };
     const rows = [];
-    for (const line of out.split(/\r?\n/).slice(1)) {
-      const m = line.match(/^(\S+)\s+(device|offline|unauthorized|recovery|sideload|bootloader|no permissions.*?)(?:\s+(.*))?$/);
+    for (const line of out.split(/\r?\n/)) {
+      const m = line.trim().match(/^(\S+)\s+(device|offline|unauthorized|recovery|sideload|bootloader|no permissions)(?:\s+(.*))?$/);
       if (!m) continue;
       const model = (m[3] || "").split(/\s+/).find((p) => p.startsWith("model:"));
       rows.push({
@@ -96,6 +116,7 @@ export default class Devices extends View {
         state: m[2] === "device" ? "online" : m[2],
         name: (model ? model.slice(6) : m[1]).replace(/_/g, " "),
         emulator: m[1].startsWith("emulator-"),
+        connection: /(?:^|\s)usb:/.test(m[3] ?? "") ? "USB" : /:\d+$|\._adb-tls-connect\._tcp\.?$/.test(m[1]) ? "Wi-Fi" : "physical device",
         detail: "",
       });
     }
@@ -111,7 +132,7 @@ export default class Devices extends View {
             r.avd = avd.split(/\r?\n/)[0].trim();
             if (r.avd) r.name = r.avd.replace(/_/g, " ");
           }
-          r.detail = `Android ${version ? version.trim() : "?"} · ${r.emulator ? "emulator" : "device"}`;
+          r.detail = `Android ${version ? version.trim() : "?"} · ${r.emulator ? "emulator" : r.connection}`;
         }),
     );
     return { missing: false, rows };
@@ -168,7 +189,12 @@ export default class Devices extends View {
     const all = this.groups.flatMap((g) => g.sections.flatMap((s) => s.rows));
     const total = all.length;
     const online = all.filter((r) => r.state === "online").length;
+    const physical = all.filter(r => r.kind === "android" && !r.emulator).length;
     const where = (machine) => machine ?? "This computer";
+    // Put every machine's connected hardware above the potentially long AVD catalog.
+    const ordered = [false, true].flatMap(stopped => this.groups.map(g => ({ ...g,
+      sections: g.sections.map(s => ({ ...s, rows: s.rows.filter(r => (r.state === "stopped") === stopped) })).filter(s => s.rows.length),
+    })).filter(g => g.sections.length || !stopped));
     const dot = (r) => (r.state === "online" ? t.done : r.state === "stopped" ? t.dim : t.blocked);
     return v_flex()
       .size_full()
@@ -182,8 +208,10 @@ export default class Devices extends View {
           .gap(10)
           .items_center()
           .child(div().font_semibold().text_size(15).text_color(t.accent).child("Devices"))
-          .child(div().text_color(t.muted).child(this.loading ? "scanning…" : `${online} connected · ${total - online} not connected`))
+          .child(div().text_color(t.muted).child(this.loading ? "scanning…" : `${physical} physical Android · ${online} connected · ${total - online} not connected`))
           .child(div().flex_1())
+          .child(div().id("devices-refresh").px(8).py(2).rounded(6).cursor_pointer().text_color(t.muted)
+            .hover(s => s.bg(t.hover).text_color(t.foreground)).on_click((_e, cx) => this.refresh(cx)).child("Refresh"))
           .child(
             div()
               .id("devices-close")
@@ -204,10 +232,10 @@ export default class Devices extends View {
           .gap(2)
           .overflow_y_scrollbar()
           .children(
-            this.groups.flatMap((g) => [
+            ordered.flatMap((g) => [
               div().pt(10).font_semibold().text_size(14).text_color(t.foreground).child(where(g.machine)),
-              ...(g.sections.length || !g.adbMissing ? [] : [div().px(8).text_color(t.dim).child("adb not found here")]),
-              ...(g.sections.length || g.adbMissing ? [] : [div().px(8).text_color(t.dim).child("no devices")]),
+              ...(g.sections.length || !g.adbMissing || g.loading ? [] : [div().px(8).text_color(t.dim).child("ADB unavailable · check platform-tools / ANDROID_HOME")]),
+              ...(g.sections.length || g.adbMissing ? [] : [div().px(8).text_color(t.dim).child(g.loading ? "scanning…" : "No connected devices reported by ADB")]),
               ...g.sections.flatMap((s) => [
               div().pt(6).pb(2).px(8).font_semibold().text_color(t.blocked).child(s.title),
               ...s.rows.map((r) =>

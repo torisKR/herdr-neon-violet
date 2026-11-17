@@ -44,14 +44,17 @@ fn escape_len(b: &[u8], i: usize) -> usize {
                 if (0x40..=0x7e).contains(&b[j]) {
                     return j + 1 - i;
                 }
+                if !(0x20..=0x3f).contains(&b[j]) {
+                    return j - i;
+                }
                 j += 1;
             }
             b.len() - i
         }
-        Some(b']') => {
+        Some(b']' | b'P' | b'X' | b'^' | b'_') => {
             let mut j = i + 2;
             while j < b.len() {
-                if b[j] == 0x07 {
+                if b[i + 1] == b']' && b[j] == 0x07 {
                     return j + 1 - i;
                 }
                 if b[j] == 0x1b && b.get(j + 1) == Some(&b'\\') {
@@ -61,9 +64,16 @@ fn escape_len(b: &[u8], i: usize) -> usize {
             }
             b.len() - i
         }
-        Some(b'(') | Some(b')') => 3.min(b.len() - i),
-        Some(_) => 2,
-        None => 1,
+        _ => {
+            let mut j = i + 1;
+            while b.get(j).is_some_and(|c| (0x20..=0x2f).contains(c)) {
+                j += 1;
+            }
+            if b.get(j).is_some_and(|c| (0x30..=0x7e).contains(c)) {
+                j += 1;
+            }
+            j - i
+        }
     }
 }
 
@@ -96,6 +106,17 @@ pub fn strip(s: &str) -> String {
     out
 }
 
+/// Plain content with line breaks preserved, but no terminal controls or styling.
+pub fn plain_text(s: &str) -> String {
+    s.split('\n').map(strip).collect::<Vec<_>>().join("\n")
+}
+
+fn is_sgr(sequence: &[u8]) -> bool {
+    sequence.starts_with(b"\x1b[")
+        && sequence.ends_with(b"m")
+        && sequence[2..sequence.len() - 1].iter().all(|c| c.is_ascii_digit() || matches!(c, b';' | b':'))
+}
+
 /// Visible width of a string that may contain escape sequences.
 pub fn width(s: &str) -> usize {
     let b = s.as_bytes();
@@ -126,7 +147,10 @@ pub fn fit(s: &str, w: usize, pad_style: &str) -> String {
     while i < b.len() {
         let e = escape_len(b, i);
         if e > 0 {
-            out.push_str(&s[i..i + e]);
+            // Layout may keep our SGR styles, never cursor, clipboard or terminal commands.
+            if is_sgr(&b[i..i + e]) {
+                out.push_str(&s[i..i + e]);
+            }
             i += e;
             continue;
         }
@@ -137,7 +161,7 @@ pub fn fit(s: &str, w: usize, pad_style: &str) -> String {
         }
         if c == '\t' {
             out.push_str("  ");
-        } else {
+        } else if !c.is_control() {
             out.push(c);
         }
         used += cw;
@@ -345,4 +369,37 @@ pub fn herdr(args: &[&str]) -> Option<serde_json::Value> {
     let out = run(&herdr_bin(), args)?;
     let v: serde_json::Value = serde_json::from_str(out.trim()).ok()?;
     v.get("result").cloned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn malformed_escapes_preserve_utf8_boundaries() {
+        for (input, expected) in [
+            ("\x1bé", "é"),
+            ("\x1b(한글", "한글"),
+            ("\x1b[31é", "é"),
+            ("\x1b", ""),
+        ] {
+            assert_eq!(strip(input), expected);
+            assert_eq!(width(input), width(expected));
+            assert_eq!(strip(&fit(input, 10, "")), format!("{expected}{}", " ".repeat(10 - width(expected))));
+        }
+    }
+
+    #[test]
+    fn plain_text_removes_terminal_commands_and_preserves_lines() {
+        let input = "first\x1b]52;c;dGVzdA==\x07\n\x1b[2J\x1b[31msecond\x1b[0m\t한글\r";
+        assert_eq!(plain_text(input), "first\nsecond  한글");
+        assert_eq!(strip("a\x1bPignored 한글\x1b\\b"), "ab");
+    }
+
+    #[test]
+    fn fit_keeps_styles_but_drops_terminal_side_effects() {
+        let styled = format!("{}hello\x1b[2J\x1b]52;c;dGVzdA==\x07\r\n\u{009b}", fg(TEXT));
+        let output = fit(&styled, 5, "");
+        assert_eq!(output, format!("{}hello", fg(TEXT)));
+    }
 }

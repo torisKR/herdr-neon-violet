@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, ScrollHandle } from "gpui-base";
-import { spaces, panes, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
+import { spaces, panes, focused, run, openOverlay, theme, window, shared, layout, settings } from "herdr";
 
 function find(node, id) {
   if (node?.id === id) return node;
@@ -147,7 +147,12 @@ export default class Tabs extends View {
       .child(h_flex().id("tab-scroll").flex_1().min_w(0).h_full().items_center().gap(3).overflow_x_scrollbar().track_scroll(this.scroll)
         .on_size_change((_size, cx) => { if (active >= 0) { this.scroll.scroll_to_item(active); cx.notify(); } })
         .children(shown.map(item)))
-      .child(button("tab-new", "+", () => openOverlay({ mod: "nv-new-menu", kind: "popup", width: 270, height: 700 })))
+      .child(button("tab-new", "+", () => {
+        const f = focused();
+        const on = f?.terminal ? (f.terminal.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
+        openOverlay({ mod: "nv-new-menu", kind: "popup", width: 270, height: 700,
+          props: { source: { cwd: f?.cwd ?? null, on, pane: f?.pane ?? null, space: f?.space ?? space?.id } } });
+      }))
       .when(enabled.includes("files"), el => el.child(panelButton("files", "Files", "mods/files/file.svg")))
       .when(enabled.includes("changes"), el => el.child(panelButton("changes", "Changes", "mods/changes/changes.svg")))
       .when(w?.buttons, el => el.child(button("minimize", w.platform === "windows" ? svg("mods/nv-tabs/win-min.svg").size(16) : "−", () => run("window.minimize")))

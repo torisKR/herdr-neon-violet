@@ -4,7 +4,7 @@
 //!   { "version": 1, "items": [ { "id", "text", "done", "source", "key", "cwd", "created", "done_at" } ] }
 //!
 //! People and agents change it through this command, so every writer goes through the same
-//! read-modify-rename and the file is never left half written.
+//! locked read-modify-rename and the file is never left half written.
 
 use serde_json::{json, Value};
 use std::fs;
@@ -34,15 +34,31 @@ fn now() -> u64 {
 
 fn new_id() -> String {
     let n = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    format!("{:06x}", (n / 1000) & 0xff_ffff)
+    format!("{n:x}-{:x}", std::process::id())
 }
 
-fn load() -> Vec<Value> {
-    let text = fs::read_to_string(store_path()).unwrap_or_default();
-    serde_json::from_str::<Value>(&text)
-        .ok()
-        .and_then(|v| v.get("items").and_then(|i| i.as_array().cloned()))
-        .unwrap_or_default()
+fn load() -> Result<Vec<Value>, String> {
+    let text = match fs::read_to_string(store_path()) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let value: Value = serde_json::from_str(&text).map_err(|e| format!("invalid to-do store: {e}"))?;
+    let items = value.get("items").and_then(Value::as_array).ok_or("invalid to-do store: expected an items array")?;
+    if items.iter().any(|item| !item.is_object()) {
+        return Err("invalid to-do store: expected item objects".into());
+    }
+    Ok(items.clone())
+}
+
+// Keep the lock on a separate file: the JSON file itself is replaced on each save.
+// Closing this handle releases the OS lock even if a writer crashes.
+fn lock_store() -> Result<fs::File, String> {
+    let path = store_path().with_extension("lock");
+    fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
+    let file = fs::File::options().read(true).write(true).create(true).truncate(false).open(path).map_err(|e| e.to_string())?;
+    file.lock().map_err(|e| e.to_string())?;
+    Ok(file)
 }
 
 fn save(items: &[Value]) -> Result<(), String> {
@@ -249,7 +265,7 @@ fn claude_bin() -> String {
 /// A separate headless call: nothing is added to the agent's own conversation, no tools,
 /// no hooks, no saved session. Any failure leaves the rule-based headline in place.
 fn summarize(id: &str) -> Result<(), String> {
-    let items = load();
+    let items = load()?;
     let item = items.iter().find(|it| str_of(it, "id") == id).ok_or("no such to-do")?;
     let detail = if str_of(item, "detail").is_empty() { str_of(item, "text") } else { str_of(item, "detail") }.to_string();
 
@@ -288,7 +304,8 @@ fn summarize(id: &str) -> Result<(), String> {
     }
     let title: String = if title.chars().count() > 60 { title.chars().take(59).collect::<String>() + "…" } else { title.to_string() };
     // Re-read: the list may have changed while the model was answering.
-    let mut items = load();
+    let _lock = lock_store()?;
+    let mut items = load()?;
     if retitle(&mut items, id, &title) {
         save(&items)?;
     }
@@ -301,7 +318,8 @@ fn hook(kind: &str, args: &[String]) -> Result<(), String> {
     if std::env::var_os("NV_TODO_SUMMARY").is_some() {
         return Ok(());
     }
-    let mut items = load();
+    let _lock = lock_store()?;
+    let mut items = load()?;
     // The session an event belongs to; Codex and Claude Code both send session_id and cwd.
     let session_of = |v: &Value| -> String {
         ["session_id", "thread_id", "conversation_id", "cwd"].iter().map(|k| str_of(v, k)).find(|s| !s.is_empty()).unwrap_or("").to_string()
@@ -349,9 +367,16 @@ fn hook(kind: &str, args: &[String]) -> Result<(), String> {
                 return Ok(());
             }
             let cwd = str_of(&v, "cwd").to_string();
+            let thread = str_of(&v, "thread-id");
             let mut closed = false;
             for item in items.iter_mut() {
-                if str_of(item, "source") == "codex" && item["done"] != json!(true) && same_dir(str_of(item, "cwd"), &cwd) {
+                let key = str_of(item, "key");
+                let matching = if !thread.is_empty() && !key.is_empty() {
+                    key == thread
+                } else {
+                    same_dir(str_of(item, "cwd"), &cwd)
+                };
+                if str_of(item, "source") == "codex" && item["done"] != json!(true) && matching {
                     set_done(item, true);
                     closed = true;
                 }
@@ -415,10 +440,16 @@ pub fn main(args: &[String]) -> i32 {
     let sub = args.first().map(String::as_str).unwrap_or("list");
     let o = parse(args.get(1..).unwrap_or(&[]));
     let result: Result<(), String> = (|| {
+        // Summarization waits for a model and acquires its own lock only to save.
+        let _lock = if matches!(sub, "add" | "done" | "undone" | "toggle" | "rm" | "title" | "clear-done") {
+            Some(lock_store()?)
+        } else {
+            None
+        };
         match sub {
             "path" => println!("{}", store_path().display()),
             "list" => {
-                let items = load();
+                let items = load()?;
                 if o.json {
                     println!("{}", json!({ "version": 1, "items": items }));
                 } else if items.is_empty() {
@@ -434,14 +465,14 @@ pub fn main(args: &[String]) -> i32 {
                 if text.trim().is_empty() {
                     return Err("usage: nv todo add [--source claude|codex|me] <text>".into());
                 }
-                let mut items = load();
+                let mut items = load()?;
                 let id = add(&mut items, &text, &o.source, &o.key, &o.cwd, false);
                 save(&items)?;
                 println!("{id}");
             }
             "done" | "undone" | "toggle" | "rm" => {
                 let id = o.rest.first().cloned().unwrap_or_default();
-                let mut items = load();
+                let mut items = load()?;
                 let before = items.len();
                 let mut hit = false;
                 if sub == "rm" {
@@ -476,14 +507,14 @@ pub fn main(args: &[String]) -> i32 {
                 // nv todo title <id> <new headline>
                 let id = o.rest.first().cloned().unwrap_or_default();
                 let title = o.rest.get(1..).unwrap_or(&[]).join(" ");
-                let mut items = load();
+                let mut items = load()?;
                 if !retitle(&mut items, &id, &title) {
                     return Err("usage: nv todo title <id> <new headline>".into());
                 }
                 save(&items)?;
             }
             "clear-done" => {
-                let mut items = load();
+                let mut items = load()?;
                 items.retain(|it| it["done"] != json!(true));
                 save(&items)?;
             }

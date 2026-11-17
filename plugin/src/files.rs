@@ -9,12 +9,14 @@
 use crate::ui::*;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseButton, MouseEventKind};
 use serde_json::Value;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const METHODS: [&str; 3] = ["squash", "merge", "rebase"];
 const LIST_FIELDS: &str = "number,title,author,headRefName,baseRefName,isDraft,reviewDecision,updatedAt";
-const VIEW_FIELDS: &str = "number,title,body,author,url,isDraft,mergeable,reviewDecision,additions,deletions,headRefName,baseRefName,comments,files,statusCheckRollup";
+const VIEW_FIELDS: &str = "number,title,body,author,url,isDraft,mergeable,reviewDecision,additions,deletions,headRefName,headRefOid,baseRefName,comments,files,statusCheckRollup";
+const PREVIEW_LIMIT: usize = 300_000;
 
 struct Node {
     path: PathBuf,
@@ -39,6 +41,11 @@ enum Tab {
     Prs,
 }
 
+struct Comment {
+    number: u64,
+    body: String,
+}
+
 struct App {
     root: PathBuf,
     tab: Tab,
@@ -56,11 +63,12 @@ struct App {
     detail: Vec<String>,
     detail_top: usize,
     detail_for: Option<u64>,
+    detail_head: String,
     detail_width: usize,
     can_merge: bool,
     method: usize,
     confirm: bool,
-    input: Option<String>,
+    input: Option<Comment>,
     note: String,
 }
 
@@ -91,13 +99,29 @@ fn login(v: &Value) -> String {
     v.get("author").and_then(|a| a.get("login")).and_then(|l| l.as_str()).unwrap_or("unknown").to_string()
 }
 
+fn read_preview(path: &Path) -> io::Result<(Vec<u8>, u64)> {
+    // Reject links and special files before opening: FIFOs may block at open,
+    // and device files can produce an unbounded stream.
+    if !std::fs::symlink_metadata(path)?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "preview requires a regular file"));
+    }
+    let file = std::fs::File::open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "preview requires a regular file"));
+    }
+    let mut bytes = Vec::new();
+    file.take(PREVIEW_LIMIT as u64).read_to_end(&mut bytes)?;
+    Ok((bytes, metadata.len()))
+}
+
 impl App {
     fn new(root: PathBuf) -> App {
         let nodes = children(&root, 0);
         App {
             root, tab: Tab::Files, nodes, sel: 0, top: 0, preview: Vec::new(), preview_top: 0,
             prs: Vec::new(), pr_sel: 0, pr_top: 0, pr_error: String::new(), detail: Vec::new(), detail_top: 0,
-            detail_for: None, detail_width: 0, can_merge: false, method: 0, confirm: false, input: None, note: String::new(),
+            detail_for: None, detail_head: String::new(), detail_width: 0, can_merge: false, method: 0, confirm: false, input: None, note: String::new(),
         }
     }
 
@@ -137,21 +161,20 @@ impl App {
     fn open_file(&mut self) {
         let Some(node) = self.nodes.get(self.sel) else { return };
         self.preview_top = 0;
-        let rel = node.path.strip_prefix(&self.root).unwrap_or(&node.path).to_string_lossy().replace('\\', "/");
+        let rel = strip(&node.path.strip_prefix(&self.root).unwrap_or(&node.path).to_string_lossy().replace('\\', "/"));
         let mut lines = vec![format!("{}{BOLD}{rel}", fg(VIOLET)), String::new()];
-        match std::fs::read(&node.path) {
-            Err(e) => lines.push(format!("{}cannot read this file: {e}", fg(PINK))),
-            Ok(bytes) => {
-                let size = bytes.len();
-                let head = &bytes[..size.min(300_000)];
+        match read_preview(&node.path) {
+            Err(e) => lines.push(format!("{}cannot read this file: {}", fg(PINK), strip(&e.to_string()))),
+            Ok((bytes, size)) => {
+                let head = &bytes[..];
                 if head.contains(&0) {
                     lines.push(format!("{}binary file · {size} bytes", fg(DIM)));
                 } else {
                     let text = String::from_utf8_lossy(head);
                     for (i, l) in text.lines().enumerate() {
-                        lines.push(format!("{}{:>4} {}{}", fg(BORDER), i + 1, fg(TEXT), l.replace('\t', "  ")));
+                        lines.push(format!("{}{:>4} {}{}", fg(BORDER), i + 1, fg(TEXT), strip(l)));
                     }
-                    if size > head.len() {
+                    if size > head.len() as u64 {
                         lines.push(format!("{}… the first 300 KB of {size} bytes are shown", fg(DIM)));
                     }
                 }
@@ -208,19 +231,26 @@ impl App {
 
     fn load_detail(&mut self, width: usize) {
         let Some(number) = self.prs.get(self.pr_sel).map(|p| p.number) else { return };
+        self.load_detail_for(number, width);
+    }
+
+    fn load_detail_for(&mut self, number: u64, width: usize) {
+        self.confirm = false;
+        self.detail_head.clear();
         let (ok, out, err) = self.gh(&["pr", "view", &number.to_string(), "--json", VIEW_FIELDS]);
         self.detail_top = 0;
         self.detail_for = Some(number);
         self.detail_width = width;
         if !ok {
-            self.detail = vec![format!("{}{}", fg(PINK), err.lines().next().unwrap_or("could not load this pull request"))];
+            self.detail = vec![format!("{}{}", fg(PINK), strip(err.lines().next().unwrap_or("could not load this pull request")))];
             self.can_merge = false;
             return;
         }
         let pr: Value = serde_json::from_str(&out).unwrap_or(Value::Null);
         let draft = pr.get("isDraft").and_then(|d| d.as_bool()).unwrap_or(false);
         let mergeable = text_of(&pr, "mergeable");
-        self.can_merge = !draft && mergeable != "CONFLICTING";
+        self.detail_head = text_of(&pr, "headRefOid");
+        self.can_merge = !draft && mergeable != "CONFLICTING" && !self.detail_head.is_empty();
         let (mut pass, mut fail, mut pending) = (0, 0, 0);
         for c in pr.get("statusCheckRollup").and_then(|c| c.as_array()).into_iter().flatten() {
             let conclusion = text_of(c, "conclusion");
@@ -238,7 +268,7 @@ impl App {
         }
         d.push(format!(
             "{}{} wants to merge {} into {}  {}+{} {}−{}",
-            fg(DIM), login(&pr), text_of(&pr, "headRefName"), text_of(&pr, "baseRefName"),
+            fg(DIM), strip(&login(&pr)), strip(&text_of(&pr, "headRefName")), strip(&text_of(&pr, "baseRefName")),
             fg(GREEN), pr.get("additions").and_then(|a| a.as_u64()).unwrap_or(0),
             fg(PINK), pr.get("deletions").and_then(|a| a.as_u64()).unwrap_or(0)
         ));
@@ -273,7 +303,7 @@ impl App {
                 "{}{:>5} {}{:>5}  {}{}",
                 fg(GREEN), format!("+{}", f.get("additions").and_then(|a| a.as_u64()).unwrap_or(0)),
                 fg(PINK), format!("−{}", f.get("deletions").and_then(|a| a.as_u64()).unwrap_or(0)),
-                fg(TEXT), text_of(f, "path")
+                fg(TEXT), strip(&text_of(f, "path"))
             ));
         }
         let comments: Vec<&Value> = pr.get("comments").and_then(|c| c.as_array()).into_iter().flatten().collect();
@@ -282,32 +312,43 @@ impl App {
         let skip = comments.len().saturating_sub(30);
         for c in comments.iter().skip(skip) {
             d.push(String::new());
-            d.push(format!("{}{BOLD}{}{RESET}{} · {}", fg(CYAN), login(c), fg(DIM), text_of(c, "createdAt").chars().take(10).collect::<String>()));
+            d.push(format!("{}{BOLD}{}{RESET}{} · {}", fg(CYAN), strip(&login(c)), fg(DIM), strip(&text_of(c, "createdAt").chars().take(10).collect::<String>())));
             d.extend(wrap(&text_of(c, "body"), w).into_iter().map(|l| format!("{}{l}", fg(TEXT))));
         }
         self.detail = d;
     }
 
-    fn send_comment(&mut self, body: &str, width: usize) {
-        let Some(number) = self.detail_for else { return };
-        let (ok, _, err) = self.gh(&["pr", "comment", &number.to_string(), "--body", body]);
-        self.note = if ok { format!("{}comment posted on #{number}", fg(GREEN)) } else { format!("{}comment failed: {}", fg(PINK), err.lines().next().unwrap_or("")) };
-        if ok {
-            self.load_detail(width);
+    fn start_comment(&mut self) {
+        if let Some(number) = self.detail_for {
+            self.input = Some(Comment { number, body: String::new() });
         }
     }
 
+    fn send_comment(&mut self, number: u64, body: &str, width: usize) {
+        let (ok, _, err) = self.gh(&["pr", "comment", &number.to_string(), "--body", body]);
+        self.note = if ok { format!("{}comment posted on #{number}", fg(GREEN)) } else { format!("{}comment failed: {}", fg(PINK), strip(err.lines().next().unwrap_or(""))) };
+        if ok && self.detail_for == Some(number) {
+            self.load_detail_for(number, width);
+        }
+    }
+
+    fn merge_args(&self) -> Option<Vec<String>> {
+        let number = self.detail_for?;
+        if self.detail_head.is_empty() { return None; }
+        Some(vec!["pr".into(), "merge".into(), number.to_string(), format!("--{}", METHODS[self.method]), "--match-head-commit".into(), self.detail_head.clone()])
+    }
+
     fn merge(&mut self) {
-        let Some(number) = self.detail_for else { return };
-        let flag = format!("--{}", METHODS[self.method]);
-        let (ok, _, err) = self.gh(&["pr", "merge", &number.to_string(), &flag]);
+        let Some(args) = self.merge_args() else { return };
+        let number = self.detail_for.unwrap();
+        let (ok, _, err) = self.gh(&args.iter().map(String::as_str).collect::<Vec<_>>());
         if ok {
             self.note = format!("{}merged #{number} ({})", fg(GREEN), METHODS[self.method]);
             self.detail.clear();
             self.detail_for = None;
             self.load_prs();
         } else {
-            self.note = format!("{}merge failed: {}", fg(PINK), err.lines().next().unwrap_or(""));
+            self.note = format!("{}merge failed: {}", fg(PINK), strip(err.lines().next().unwrap_or("")));
         }
     }
 
@@ -332,7 +373,7 @@ impl App {
             "{bar} {}{} {}  {}{}",
             tab(self.tab == Tab::Files, "Files".to_string()),
             tab(self.tab == Tab::Prs, format!("Pull requests {}", self.prs.len())),
-            fg(BORDER), fg(DIM), self.root.to_string_lossy()
+            fg(BORDER), fg(DIM), strip(&self.root.to_string_lossy())
         );
         let mut out = vec![fit(&head, cols, &bar)];
 
@@ -368,28 +409,28 @@ impl App {
                     Some(n) => {
                         let icon = if n.dir { if n.open { "▾ " } else { "▸ " } } else { "  " };
                         let color = if n.dir { CYAN } else if n.name.starts_with('.') { DIM } else { TEXT };
-                        format!("{row_bg} {}{}{icon}{}{}{}", "  ".repeat(n.depth), fg(BORDER), fg(color), if n.dir || selected { BOLD } else { "" }, n.name)
+                        format!("{row_bg} {}{}{icon}{}{}{}", "  ".repeat(n.depth), fg(BORDER), fg(color), if n.dir || selected { BOLD } else { "" }, strip(&n.name))
                     }
                     None => String::new(),
                 },
                 Tab::Prs => match self.prs.get(i) {
                     Some(p) => {
                         let dot = if p.draft { DIM } else if p.review == "APPROVED" { GREEN } else if p.review == "CHANGES_REQUESTED" { PINK } else { YELLOW };
-                        format!("{row_bg} {}● {}#{} {}{}{} {}{}", fg(dot), fg(VIOLET), p.number, fg(TEXT), if selected { BOLD } else { "" }, p.title, fg(DIM), format!("{} · {}", p.author, p.updated))
+                        format!("{row_bg} {}● {}#{} {}{}{} {}{}", fg(dot), fg(VIOLET), p.number, fg(TEXT), if selected { BOLD } else { "" }, strip(&p.title), fg(DIM), format_args!("{} · {}", strip(&p.author), strip(&p.updated)))
                     }
                     None => String::new(),
                 },
             };
             let right_line = match right.get(right_top + y) {
                 Some(l) => l.clone(),
-                None if right.is_empty() && y == 1 => format!("{}{hint}", fg(DIM)),
+                None if right.is_empty() && y == 1 => format!("{}{}", fg(DIM), strip(&hint)),
                 None => String::new(),
             };
             out.push(format!("{}{RESET}{base}{}│{RESET}{base} {}", fit(&left, lw, &row_bg), fg(BORDER), fit(&right_line, rw.saturating_sub(1), "")));
         }
 
         let foot = if let Some(input) = &self.input {
-            format!(" {}{BOLD}comment ›{RESET}{bar} {}{input}█   {}enter send · esc cancel", fg(YELLOW), fg(TEXT), fg(DIM))
+            format!(" {}{BOLD}comment #{} ›{RESET}{bar} {}{}█   {}enter send · esc cancel", fg(YELLOW), input.number, fg(TEXT), strip(&input.body), fg(DIM))
         } else if self.confirm {
             format!(" {}{BOLD}{} merge #{}?{RESET}{bar}  {}y yes · s change method · any other key cancels", fg(PINK), METHODS[self.method], self.detail_for.unwrap_or(0), fg(TEXT))
         } else if !self.note.is_empty() {
@@ -472,20 +513,21 @@ pub fn main(args: &[String]) -> i32 {
                 if app.input.is_some() {
                     match k.code {
                         KeyCode::Enter => {
-                            let body = app.input.take().unwrap_or_default();
-                            if !body.trim().is_empty() {
-                                app.send_comment(body.trim(), rw);
+                            if let Some(comment) = app.input.take() {
+                                if !comment.body.trim().is_empty() {
+                                    app.send_comment(comment.number, comment.body.trim(), rw);
+                                }
                             }
                         }
                         KeyCode::Esc => app.input = None,
                         KeyCode::Backspace => {
                             if let Some(input) = app.input.as_mut() {
-                                input.pop();
+                                input.body.pop();
                             }
                         }
                         KeyCode::Char(c) if !k.modifiers.contains(KeyModifiers::CONTROL) => {
                             if let Some(input) = app.input.as_mut() {
-                                input.push(c);
+                                input.body.push(c);
                             }
                         }
                         _ => {}
@@ -526,10 +568,10 @@ pub fn main(args: &[String]) -> i32 {
                             if let Some(n) = app.nodes.get(app.sel) {
                                 let path = n.path.to_string_lossy().into_owned();
                                 osc52(&path);
-                                app.note = format!("{}copied {path}", fg(GREEN));
+                                app.note = format!("{}copied {}", fg(GREEN), strip(&path));
                             }
                         }
-                        KeyCode::Char('c') if app.tab == Tab::Prs && app.detail_for.is_some() => app.input = Some(String::new()),
+                        KeyCode::Char('c') if app.tab == Tab::Prs && app.detail_for.is_some() => app.start_comment(),
                         KeyCode::Char('m') if app.tab == Tab::Prs && app.detail_for.is_some() => {
                             if app.can_merge {
                                 app.confirm = true;
@@ -577,5 +619,98 @@ pub fn main(args: &[String]) -> i32 {
             Ok(Event::Resize(_, _)) => screen.draw(&app.render()),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new() -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!("nv-preview-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            std::fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn preview_reads_only_the_prefix_of_a_large_file() {
+        let dir = TempDir::new();
+        let path = dir.0.join("large.bin");
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(b"prefix").unwrap();
+        file.set_len(20_000_000).unwrap();
+        let (bytes, size) = read_preview(&path).unwrap();
+        assert_eq!(bytes.len(), PREVIEW_LIMIT);
+        assert_eq!(size, 20_000_000);
+        assert!(bytes.starts_with(b"prefix"));
+    }
+
+    #[test]
+    fn file_preview_removes_terminal_controls_before_styling() {
+        let dir = TempDir::new();
+        std::fs::write(dir.0.join("content.txt"), "before\x1b]52;c;dGVzdA==\x07\x1b[31mafter\x1b[0m\n\x1bé\t한글").unwrap();
+        let mut app = App::new(dir.0.clone());
+        app.open_file();
+        let preview = app.preview.join("\n");
+        assert!(strip(&preview).contains("beforeafter"));
+        assert!(strip(&preview).contains("é  한글"));
+        assert!(!preview.contains("\x1b]52;") && !preview.contains("\x1b[31m"));
+    }
+
+    #[test]
+    fn directories_are_not_opened_as_preview_streams() {
+        let dir = TempDir::new();
+        assert_eq!(read_preview(&dir.0).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn links_and_special_files_are_rejected_before_opening() {
+        use std::os::unix::{fs::symlink, net::UnixListener};
+        let dir = TempDir::new();
+        let link = dir.0.join("device-link");
+        symlink("/dev/zero", &link).unwrap();
+        assert_eq!(read_preview(&link).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+        let socket = dir.0.join("socket");
+        let _listener = UnixListener::bind(&socket).unwrap();
+        assert_eq!(read_preview(&socket).unwrap_err().kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn comment_draft_keeps_its_target_after_navigation() {
+        let dir = TempDir::new();
+        let mut app = App::new(dir.0.clone());
+        app.detail_for = Some(11);
+        app.start_comment();
+        app.input.as_mut().unwrap().body.push_str("comment for the first PR");
+        // A mouse activation can replace the detail pane while a draft is open.
+        app.detail_for = Some(22);
+        assert!(strip(&app.render().join("\n")).contains("comment #11"));
+        let draft = app.input.take().unwrap();
+        assert_eq!(draft.number, 11);
+        assert_eq!(draft.body, "comment for the first PR");
+    }
+
+    #[test]
+    fn merge_requires_the_displayed_head_commit() {
+        let dir = TempDir::new();
+        let mut app = App::new(dir.0.clone());
+        app.detail_for = Some(11);
+        assert!(app.merge_args().is_none());
+        app.detail_head = "reviewed-head".into();
+        assert_eq!(app.merge_args().unwrap(), ["pr", "merge", "11", "--squash", "--match-head-commit", "reviewed-head"]);
     }
 }

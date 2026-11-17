@@ -40,6 +40,9 @@ export default class EditorPane extends View {
     this.preview = MARKDOWN.has(this.ext);
     this.wrap = MARKDOWN.has(this.ext);
     this.dirty = false;
+    this.revision = 0;
+    this.loadRequest = 0;
+    this.reloadConfirm = null;
     if (checking() || !this.file) return;
     this.load(cx);
     cx.spawn(async (cx) => {
@@ -70,17 +73,22 @@ export default class EditorPane extends View {
       },
     });
     this.state.on("change", (_e, cx) => {
+      this.revision++;
+      this.reloadConfirm = null;
       const dirty = this.state.value() !== this.original;
-      if (dirty !== this.dirty) { this.dirty = dirty; this.note = null; cx.notify(); }
+      this.dirty = dirty; this.note = null; cx.notify();
     });
     cx?.notify();
   }
 
   load(cx) {
+    if (this.saving) return;
+    const request = ++this.loadRequest, revision = this.revision;
     this.error = null;
     cx.spawn(async (cx) => {
       try {
         const text = await readTextFile(this.file, { on: this.on });
+        if (request !== this.loadRequest || revision !== this.revision) return;
         if (text === null) this.error = "This file is no longer available";
         else if (text.includes("\0")) this.error = "Binary file · no text view";
         else {
@@ -92,15 +100,29 @@ export default class EditorPane extends View {
           this.build(this.original, cx);
         }
       } catch (e) {
-        this.error = `Cannot open this file: ${e}`;
+        if (request === this.loadRequest && revision === this.revision) this.error = `Cannot open this file: ${e}`;
       }
       cx.notify();
     });
   }
 
+  reload(cx) {
+    if (this.saving) return;
+    if (this.dirty && this.reloadConfirm !== this.revision) {
+      this.reloadConfirm = this.revision;
+      cx.notify();
+      return;
+    }
+    this.reloadConfirm = null;
+    this.load(cx);
+    cx.notify();
+  }
+
   save(cx) {
     if (!this.state || !this.dirty || this.readonly || this.saving) return;
     const value = this.state.value();
+    ++this.loadRequest;
+    this.reloadConfirm = null;
     this.saving = true;
     cx.spawn(async (cx) => {
       try {
@@ -146,7 +168,7 @@ export default class EditorPane extends View {
         .child(div().flex_none().px(6).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(this.ext))
         .when(markdown, (e) => e.child(this.chip("editor-preview", this.preview ? "Source" : "Preview", t, false, (cx) => { this.preview = !this.preview; cx.notify(); })))
         .child(this.chip("editor-wrap", "Wrap", t, this.wrap, (cx) => this.setWrap(!this.wrap, cx)))
-        .child(this.chip("editor-reload", "Reload", t, false, (cx) => this.load(cx)))
+        .child(this.chip("editor-reload", this.reloadConfirm !== null ? "Discard edits? Reload" : "Reload", t, false, (cx) => this.reload(cx)))
         .child(div().id("editor-save").flex_none().px(10).py(3).rounded(6).text_size(11)
           .bg(canSave ? t.solid : t.raised).text_color(canSave ? t.solid_foreground : t.dim)
           .when(canSave, (e) => e.cursor_pointer())

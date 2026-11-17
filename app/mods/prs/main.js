@@ -6,22 +6,22 @@
 
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex, InputState, Input, TextView } from "gpui-base";
-import { spaces, panes, focused, exec, props, theme, window as win } from "herdr";
+import { checking, spaces, panes, focused, exec, props, theme, window as win } from "herdr";
 
 const LIST_FIELDS = "number,title,author,headRefName,baseRefName,isDraft,reviewDecision,updatedAt";
-const VIEW_FIELDS = "number,title,body,author,url,state,isDraft,mergeable,mergeStateStatus,reviewDecision,additions,deletions,headRefName,baseRefName,comments,files,statusCheckRollup";
+const VIEW_FIELDS = "number,title,body,author,url,state,isDraft,mergeable,mergeStateStatus,reviewDecision,additions,deletions,headRefName,headRefOid,baseRefName,comments,files,statusCheckRollup";
 const METHODS = ["squash", "merge", "rebase"];
 
 // Where the focused pane is: its folder and the machine it runs on.
-function location() {
+function location(p = {}) {
+  if (p.cwd) return { cwd: p.cwd, on: p.on ?? null };
   const space = spaces().find((s) => s.active), f = focused();
   const pane = f?.pane ? panes().find((p) => p.pane === f.pane) : null;
-  const on = f?.pane === null ? (f.terminal?.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
-  // A mod pane has no folder of its own: fall back to the first terminal of the same tab.
-  const sibling = pane && !pane.cwd ? panes().find((p) => p.tab === pane.tab && p.cwd) : null;
-  return { cwd: pane?.cwd || sibling?.cwd || f?.cwd || space?.folder, on };
+  const on = f?.terminal ? (f.terminal.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null;
+  if (f?.terminal && (f.cwd || pane?.cwd)) return { cwd: f.cwd || pane.cwd, on };
+  const folders = [...new Set(panes().filter((p) => p.tab === f?.tab && p.terminal && p.cwd).map((p) => p.cwd))];
+  return { cwd: folders.length === 1 ? folders[0] : null, on };
 }
-const key = () => JSON.stringify(location());
 
 function ago(iso) {
   const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
@@ -45,18 +45,26 @@ function checks(rollup) {
 export default class PullRequests extends View {
   init(_props, cx) {
     this.list = []; this.pr = null; this.open = null; this.method = "squash"; this.comment = "";
+    const source = location(props() ?? {});
+    this.cwd = source.cwd; this.on = source.on; this.context = JSON.stringify(source);
+    this.drafts = new Map(); this.draftVersion = 0;
+    if (!this.cwd) this.error = "Cannot choose a repository safely. Focus its terminal and open Pull requests from the + menu.";
     // props { number: 12 } opens that pull request right away
     this.wanted = Number(props()?.number) || null;
     this.handle = cx.focus_handle();
     this.input = InputState.new({ placeholder: "Write a comment" });
     this.input.on("change", (_e, cx) => {
       const had = Boolean(this.comment.trim());
-      this.comment = this.input.value();
+      const text = this.input.value();
+      if (text === this.comment) return;
+      this.comment = text;
+      if (this.open) this.drafts.set(this.draftKey(), { text, version: ++this.draftVersion });
       if (had !== Boolean(this.comment.trim())) cx.notify();
     });
     this.input.on("submit", (_e, cx) => this.sendComment(cx));
     this.input.on("focus", (_e, cx) => { this.typing = true; cx.notify(); });
     this.input.on("blur", (_e, cx) => { this.typing = false; cx.notify(); });
+    if (checking()) return;
     this.refresh(cx);
     cx.timer.every(60000, (cx) => this.refresh(cx));
   }
@@ -67,17 +75,13 @@ export default class PullRequests extends View {
 
   refresh(cx) {
     if (this.loading || this.busy) return;
-    const { cwd, on } = location(), context = key();
-    if (context !== this.context) {
-      this.context = context; this.cwd = cwd; this.on = on;
-      this.list = []; this.pr = null; this.open = null; this.error = null; this.note = null; this.confirm = false;
-    }
-    if (!cwd) return;
+    const context = this.context;
+    if (!this.cwd) return;
     this.loading = true;
     cx.spawn(async (cx) => {
       try {
         const r = await this.gh(["pr", "list", "--state", "open", "--limit", "50", "--json", LIST_FIELDS]);
-        if (key() !== context) return;
+        if (this.context !== context) return;
         if (r.code !== 0) {
           const text = (r.stderr || r.stdout).trim();
           this.list = [];
@@ -89,24 +93,36 @@ export default class PullRequests extends View {
         }
         this.list = JSON.parse(r.stdout);
         this.error = null;
-        if (this.wanted) { this.open = this.wanted; this.wanted = null; }
-        if (this.open && !this.list.some((p) => p.number === this.open)) { this.open = null; this.pr = null; }
+        if (this.wanted) { this.select(this.wanted); this.wanted = null; }
+        if (this.open && !this.list.some((p) => p.number === this.open)) { this.select(null); this.pr = null; }
         if (this.open) await this.load(this.open, context);
       } catch (e) {
-        if (key() === context) this.error = /No such file|not found|cannot find/i.test(String(e)) ? "GitHub CLI (gh) is not installed on this machine" : String(e);
+        if (this.context === context) this.error = /No such file|not found|cannot find/i.test(String(e)) ? "GitHub CLI (gh) is not installed on this machine" : String(e);
       } finally { this.loading = false; cx.notify(); }
     });
   }
 
   async load(number, context) {
     const r = await this.gh(["pr", "view", String(number), "--json", VIEW_FIELDS]);
-    if (key() !== context || this.open !== number) return;
+    if (this.context !== context || this.open !== number) return;
     if (r.code !== 0) { this.note = (r.stderr || r.stdout).trim().split("\n")[0]; return; }
-    this.pr = JSON.parse(r.stdout);
+    const pr = JSON.parse(r.stdout);
+    if (this.confirm && this.confirm.head !== pr.headRefOid) this.confirm = false;
+    this.pr = pr;
+  }
+
+  draftKey(number = this.open) {
+    return JSON.stringify([this.context, number]);
+  }
+
+  select(number) {
+    this.open = number;
+    this.comment = this.drafts.get(this.draftKey())?.text ?? "";
+    this.input.set_value(this.comment);
   }
 
   pick(number, cx) {
-    this.open = this.open === number ? null : number;
+    this.select(this.open === number ? null : number);
     this.pr = null; this.note = null; this.confirm = false;
     const context = this.context;
     if (this.open) cx.spawn(async (cx) => {
@@ -125,8 +141,8 @@ export default class PullRequests extends View {
       try {
         const r = await this.gh(args);
         if (r.code !== 0) throw new Error((r.stderr || r.stdout).trim().split("\n")[0]);
-        if (key() === context) after?.();
-      } catch (e) { if (key() === context) this.note = `${label} failed: ${e.message ?? e}`; }
+        if (this.context === context) after?.();
+      } catch (e) { if (this.context === context) this.note = `${label} failed: ${e.message ?? e}`; }
       finally { this.busy = null; this.refresh(cx); cx.notify(); }
     });
     cx.notify();
@@ -134,19 +150,32 @@ export default class PullRequests extends View {
 
   sendComment(cx) {
     const body = this.comment.trim();
-    if (!body) return;
-    this.act(cx, "Comment", ["pr", "comment", String(this.open), "--body", body], () => {
-      this.comment = ""; this.input.set_value(""); this.done = "Comment posted";
+    if (!body || this.pr?.number !== this.open || this.pr?.state !== "OPEN") return;
+    const number = this.open, key = this.draftKey(), draft = this.drafts.get(key);
+    this.act(cx, "Comment", ["pr", "comment", String(number), "--body", body], () => {
+      if (this.drafts.get(key) === draft) {
+        this.drafts.delete(key);
+        if (this.open === number) { this.comment = ""; this.input.set_value(""); }
+      }
+      if (this.open === number) this.done = "Comment posted";
     });
   }
 
   merge(cx) {
+    if (!this.canMerge()) return;
+    const number = this.open, head = this.pr.headRefOid;
     // First press arms it, second press merges.
-    if (!this.confirm) { this.confirm = true; this.done = null; cx.notify(); return; }
-    const number = this.open;
-    this.act(cx, "Merge", ["pr", "merge", String(number), `--${this.method}`], () => {
-      this.done = `Merged #${number}`; this.open = null; this.pr = null;
+    if (!this.confirm || this.confirm.number !== number || this.confirm.head !== head || this.confirm.method !== this.method) {
+      this.confirm = { number, head, method: this.method }; this.done = null; cx.notify(); return;
+    }
+    this.act(cx, "Merge", ["pr", "merge", String(number), `--${this.method}`, "--match-head-commit", this.confirm.head], () => {
+      if (this.open === number) { this.done = `Merged #${number}`; this.select(null); this.pr = null; }
     });
+  }
+
+  canMerge() {
+    return Boolean(this.open && this.pr?.number === this.open && this.pr.state === "OPEN" && !this.busy && !this.pr.isDraft
+      && this.pr.mergeable === "MERGEABLE" && /^[0-9a-f]{40}$/i.test(this.pr.headRefOid ?? ""));
   }
 
   openInBrowser(url) {
@@ -199,16 +228,16 @@ export default class PullRequests extends View {
   }
 
   render(cx) {
-    if (key() !== this.context) this.refresh(cx);
     const t = theme(), pr = this.pr;
-    const canComment = Boolean(this.open && this.comment.trim() && !this.busy);
-    const canMerge = Boolean(pr && !this.busy && !pr.isDraft && pr.mergeable !== "CONFLICTING");
+    const canComment = Boolean(this.open && pr?.number === this.open && pr.state === "OPEN" && this.comment.trim() && !this.busy);
+    const canMerge = this.canMerge();
     return v_flex().id("prs").size_full().min_h(0).rounded(10).overflow_hidden().bg(t.background).border_1().border_color(t.border).text_color(t.foreground).text_size(13).track_focus(this.handle)
       .on_key_down((e, cx) => {
         if (e.key === "escape" && this.typing) { this.typing = false; this.handle.focus(); cx.stop_propagation(); cx.notify(); }
       })
       .child(h_flex().h(42).flex_none().px(14).gap(8).items_center().border_b(1).border_color(t.border)
         .child(div().font_semibold().child("Pull requests"))
+        .child(div().flex_1().min_w(0).truncate().text_size(11).text_color(t.dim).child(this.cwd ? `${this.on ? `${this.on}: ` : ""}${this.cwd}` : "No repository"))
         .child(div().px(5).py(1).rounded(4).border_1().border_color(t.border).text_size(10).text_color(t.muted).child(`${this.list.length} open`))
         .child(div().flex_1())
         .child(div().id("prs-refresh").px(8).py(2).rounded(6).text_size(11).text_color(t.muted).cursor_pointer().hover((s) => s.bg(t.hover).text_color(t.foreground))

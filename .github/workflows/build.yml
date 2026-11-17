@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - "plugin/**"
+      - "app/**"
       - ".github/workflows/build.yml"
   push:
     tags:
@@ -17,6 +18,16 @@ permissions:
   contents: write
 
 jobs:
+  app-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: App regressions
+        run: node --test app/tests/*.test.mjs
+
   build:
     strategy:
       fail-fast: false
@@ -45,6 +56,9 @@ jobs:
       - name: Build
         working-directory: plugin
         run: cargo build --release --target ${{ matrix.target }}
+      - name: Test
+        working-directory: plugin
+        run: cargo test --locked
       - name: Name the binary
         shell: bash
         run: cp "plugin/target/${{ matrix.target }}/release/nv${{ matrix.ext }}" "nv-${{ matrix.target }}${{ matrix.ext }}"
@@ -58,5 +72,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || gh release create "${{ github.ref_name }}" --generate-notes
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || gh release create "${{ github.ref_name }}" --generate-notes || gh release view "${{ github.ref_name }}" >/dev/null
           gh release upload "${{ github.ref_name }}" "nv-${{ matrix.target }}${{ matrix.ext }}" --clobber

@@ -323,7 +323,7 @@ fn layout(blocks: &[Block], w: usize) -> Vec<String> {
             blank(&mut out);
             continue;
         }
-        let plain: String = b.spans.iter().map(|s| s.text.as_str()).collect();
+        let plain: String = b.spans.iter().map(|s| plain_text(&s.text)).collect();
         if plain.trim().is_empty() {
             continue;
         }
@@ -381,7 +381,7 @@ fn layout(blocks: &[Block], w: usize) -> Vec<String> {
                 *used += ww;
                 word.clear();
             };
-            for c in s.text.chars() {
+            for c in plain_text(&s.text).chars() {
                 if c == '\n' {
                     flush_word(&mut word, &mut line, &mut used, &mut out);
                     out.push(std::mem::replace(&mut line, indent.clone()));
@@ -497,7 +497,7 @@ impl Browser {
                 self.scroll = 0;
                 self.status = if (200..400).contains(&f.status) { String::new() } else { format!("{}HTTP {}", fg(PINK), f.status) };
             }
-            Err(e) => self.status = format!("{}{e}", fg(PINK)),
+            Err(e) => self.status = format!("{}{}", fg(PINK), strip(&e)),
         }
         self.relayout();
     }
@@ -508,14 +508,14 @@ impl Browser {
         self.scroll = self.scroll.min(self.lines.len().saturating_sub(view));
         let bar = bg(BAR);
         let mut out = vec![
-            format!("{bar}{}", fit(&format!(" {}{BOLD}◆{RESET}{bar} {}{}", fg(VIOLET), fg(TEXT), if self.title.is_empty() { "browser" } else { self.title.as_str() }), cols, &bar)),
-            format!("{bar}{}", fit(&format!(" {}{}", fg(CYAN), self.url), cols, &bar)),
+            format!("{bar}{}", fit(&format!(" {}{BOLD}◆{RESET}{bar} {}{}", fg(VIOLET), fg(TEXT), strip(if self.title.is_empty() { "browser" } else { self.title.as_str() })), cols, &bar)),
+            format!("{bar}{}", fit(&format!(" {}{}", fg(CYAN), strip(&self.url)), cols, &bar)),
         ];
         for i in 0..view {
             out.push(format!("  {}", self.lines.get(self.scroll + i).map(String::as_str).unwrap_or("")));
         }
         let foot = if let Some(input) = &self.input {
-            format!(" {}{BOLD}url / search ›{RESET}{bar} {}{input}█", fg(YELLOW), fg(TEXT))
+            format!(" {}{BOLD}url / search ›{RESET}{bar} {}{}█", fg(YELLOW), fg(TEXT), strip(input))
         } else if !self.num.is_empty() {
             format!(" {}{BOLD}link {}{RESET}{bar}{}  enter open · esc cancel", fg(YELLOW), self.num, fg(DIM))
         } else if !self.status.is_empty() {
@@ -529,15 +529,49 @@ impl Browser {
     }
 }
 
+fn external_url(target: &str) -> Option<url::Url> {
+    if target.chars().any(char::is_control) {
+        return None;
+    }
+    let url = url::Url::parse(target).ok()?;
+    matches!(url.scheme(), "http" | "https").then_some(url)
+}
+
+#[cfg(windows)]
+fn windows_open_url(target: &str) -> bool {
+    use std::ffi::c_void;
+    use std::ptr::null;
+
+    #[link(name = "shell32")]
+    unsafe extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut c_void,
+            operation: *const u16,
+            file: *const u16,
+            parameters: *const u16,
+            directory: *const u16,
+            show: i32,
+        ) -> *mut c_void;
+    }
+
+    let operation: Vec<u16> = "open\0".encode_utf16().collect();
+    let target: Vec<u16> = target.encode_utf16().chain(std::iter::once(0)).collect();
+    // Both strings live through this call. Only validated HTTP(S) URLs reach this
+    // API; no command interpreter or executable parameters are involved.
+    unsafe { ShellExecuteW(std::ptr::null_mut(), operation.as_ptr(), target.as_ptr(), null(), null(), 1) as isize > 32 }
+}
+
 fn open_external(target: &str) -> bool {
-    let result = if cfg!(target_os = "macos") {
-        command("open").arg(target).spawn()
-    } else if cfg!(windows) {
-        command("cmd").args(["/c", "start", "", target]).spawn()
-    } else {
-        command("xdg-open").arg(target).spawn()
-    };
-    result.is_ok()
+    let Some(url) = external_url(target) else { return false };
+    #[cfg(windows)]
+    {
+        windows_open_url(url.as_str())
+    }
+    #[cfg(not(windows))]
+    {
+        let program = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+        command(program).arg(url.as_str()).spawn().is_ok()
+    }
 }
 
 pub fn main(args: &[String]) -> i32 {
@@ -553,7 +587,7 @@ pub fn main(args: &[String]) -> i32 {
             eprintln!("{}", strip(&b.status));
             return 1;
         }
-        println!("{}\n{}\n", b.title, b.url);
+        println!("{}\n{}\n", strip(&b.title), strip(&b.url));
         for l in &b.lines {
             println!("{}", strip(l));
         }
@@ -642,7 +676,7 @@ pub fn main(args: &[String]) -> i32 {
                     }
                 }
                 if let Some((target, push)) = go {
-                    b.status = format!("{}loading {target} …", fg(YELLOW));
+                    b.status = format!("{}loading {} …", fg(YELLOW), strip(&target));
                     screen.draw(&b.render());
                     b.load(&target, push);
                 }
@@ -653,6 +687,46 @@ pub fn main(args: &[String]) -> i32 {
                 screen.draw(&b.render());
             }
             _ => {}
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn page_content_cannot_emit_terminal_commands_or_styles() {
+        let page = parse(
+            "<p>before&#27;[31mred&#27;[0m&#27;]52;c;dGVzdA==&#7;after</p><pre>first\n\x1b[2Jsecond\t한글</pre>",
+            "https://example.test/",
+        );
+        let lines = layout(&page.blocks, 80);
+        assert!(lines.iter().any(|l| strip(l).contains("beforeredafter")));
+        assert!(lines.iter().any(|l| strip(l).contains("second  한글")));
+        assert!(lines.iter().all(|l| !l.contains("\x1b]52;") && !l.contains("\x1b[2J") && !l.contains("\x1b[31m")));
+    }
+
+    #[test]
+    fn plain_response_and_title_are_safe_to_render() {
+        let mut b = Browser {
+            url: "https://example.test/".into(), title: "title\x1b]52;c;dGVzdA==\x07".into(),
+            blocks: vec![Block { kind: "pre".into(), spans: vec![Span { text: "\x1b[2Jhello\n한글".into(), style: Style::Plain }] }],
+            links: Vec::new(), lines: Vec::new(), scroll: 0, history: Vec::new(),
+            status: String::new(), input: None, num: String::new(),
+        };
+        b.relayout();
+        let rendered = b.render().join("\n");
+        assert!(!rendered.contains("\x1b]52;") && !rendered.contains("\x1b[2J"));
+        assert!(strip(&rendered).contains("hello"));
+    }
+
+    #[test]
+    fn external_open_accepts_only_web_urls_as_data() {
+        let target = "https://example.test/?first=one&second=two";
+        assert_eq!(external_url(target).unwrap().as_str(), target);
+        for target in ["", "file:///tmp/example", "javascript:void(0)", "https://example.test/\0", "https://example.test/\n"] {
+            assert!(external_url(target).is_none());
         }
     }
 }

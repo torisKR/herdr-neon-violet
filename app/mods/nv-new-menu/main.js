@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { theme, spaces, panes, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, appHome } from "herdr";
+import { checking, theme, spaces, panes, focused, knownAgents, exec, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, appHome } from "herdr";
 
 // The last agents each machine reported, shown at once while knownAgents() checks again.
 const KNOWN = "new-menu.agents";
@@ -24,11 +24,15 @@ function shortcut(name) {
 
 export default class NewMenu extends View {
   init(_props, cx) {
-    const machine = spaces().find(s => s.active)?.machine;
+    const space = spaces().find(s => s.active), f = focused();
+    this.source = props()?.source ?? { cwd: f?.cwd ?? null, pane: f?.pane ?? null, space: f?.space ?? space?.id,
+      on: f?.terminal ? (f.terminal.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null };
+    const machine = this.source.on;
     const where = machine ?? "";
     this.agents = shared(KNOWN)?.[where] ?? [];
     this.handle = cx.focus_handle();
     this.handle.focus();
+    if (checking()) return;
     cx.spawn(async cx => {
       try {
         this.agents = await knownAgents({ on: machine });
@@ -38,13 +42,45 @@ export default class NewMenu extends View {
       cx.notify();
     });
   }
-  row(id, icon, name, action, hint = "", enabled = true) {
+  row(id, icon, name, action, hint = "", enabled = true, close = true) {
     const t = theme();
     return h_flex().id(id).h(31).px(9).gap(10).rounded(7).items_center().flex_none()
       .text_color(enabled ? t.foreground : t.dim).when(enabled, el => el.hover(s => s.bg(t.selected)))
-      .on_click(() => { if (enabled) { closeOverlay(props().overlay); action(); } })
+      .on_click((_e, cx) => { if (enabled) { if (close) closeOverlay(props().overlay); action(cx); } })
       .child(icon).child(div().flex_1().child(name)).child(div().text_size(11).text_color(t.dim).child(hint));
   }
+
+  launch(options) {
+    if (this.source.pane) run("pane.split", { direction: "right", pane: this.source.pane, ...options });
+    else if (this.source.space) run("tab.new", { space: this.source.space, ...options });
+  }
+
+  browser(cx) {
+    if (this.browserBusy) return;
+    this.browserBusy = true; this.browserError = null;
+    cx.spawn(async cx => {
+      try {
+        let path = `${appHome()}/bin/nv${window()?.platform === "windows" ? ".exe" : ""}`;
+        if (this.source.on) {
+          const options = { on: this.source.on, timeout: 10000 };
+          let r;
+          try {
+            r = await exec("sh", ["-c", 'p="${HERDR_APP_HOME:-$HOME/.config/herdr-app}/bin/nv"; test -x "$p" && printf "%s" "$p"'], options);
+          } catch (e) {
+            if (!String(e).includes("cannot start sh: program not found")) throw e;
+            r = await exec("powershell", ["-NoProfile", "-Command", '[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $root = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } else { Join-Path $HOME ".config/herdr-app" }; $p = Join-Path $root "bin/nv.exe"; if (-not (Test-Path -LiteralPath $p -PathType Leaf)) { exit 1 }; [Console]::Write($p)'], options);
+          }
+          if (r.code !== 0 || !r.stdout.trim()) throw new Error("nv is not installed on this machine");
+          path = r.stdout.trim();
+        }
+        closeOverlay(props().overlay);
+        this.launch({ argv: [path, "browse"] });
+      } catch (e) { this.browserError = `Cannot open Browser: ${e.message ?? e}`; }
+      finally { this.browserBusy = false; cx.notify(); }
+    });
+    cx.notify();
+  }
+
   render() {
     const t = theme();
     const space = spaces().find(s => s.active);
@@ -74,7 +110,10 @@ export default class NewMenu extends View {
       .child(div().px(9).pt(2).pb(4).text_size(11).text_color(t.dim).child("Tools"))
       .child(this.row("nv-all-agents", div().w(14).text_color(t.accent).child("▦"), "ALL agents", () => run("layout.switch", { name: "all-agents" }), shortcut("layout.switch:all-agents")))
       .child(this.row("nv-devices", div().w(14).text_color(t.done).child("▣"), "Devices", () => run("mod.open", { name: "devices" }), shortcut("mod.open:devices")))
-      .child(this.row("nv-prs", div().w(14).text_color(t.working).child("⇄"), "Pull requests", () => run("pane.split", { direction: "right", mod: "prs" })))
-      .child(this.row("nv-browser", div().w(14).text_color(t.idle).child("◎"), "Browser", () => run("pane.split", { direction: "right", argv: [`${appHome()}/bin/nv${window()?.platform === "windows" ? ".exe" : ""}`, "browse"] })));
+      .child(this.row("nv-prs", div().w(14).text_color(t.working).child("⇄"), "Pull requests",
+        () => this.launch({ mod: "prs", props: { cwd: this.source.cwd, on: this.source.on } }), this.source.cwd ? "" : "Focus a terminal", Boolean(this.source.cwd)))
+      .child(this.row("nv-browser", div().w(14).text_color(t.idle).child("◎"), this.browserBusy ? "Opening Browser…" : "Browser",
+        cx => this.browser(cx), "", !this.browserBusy && Boolean(this.source.pane || this.source.space), false))
+      .when(Boolean(this.browserError), el => el.child(div().px(9).py(6).text_color(t.blocked).child(this.browserError)));
   }
 }

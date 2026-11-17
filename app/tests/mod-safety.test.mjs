@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -55,7 +58,7 @@ function harness(name, overrides = {}, storage = new Map()) {
     focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: "t", cwd: "/repo" }),
     home: () => "/home/test", window: () => ({ platform: "macos" }), appHome: () => "/local/herdr-app",
     shared: () => null, setShared() {}, layout: () => null, keys: () => [],
-    agents: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
+    agents: () => [], machines: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
     nextCommand: () => new Promise(() => {}),
     run: (name, args) => calls.push({ name, args: plain(args) }),
     openOverlay: spec => overlays.push(plain(spec)), closeOverlay() {},
@@ -503,3 +506,212 @@ for (const mod of ["editor", "nv-code"]) {
     assert.equal(h.view.state.value(), html);
   });
 }
+
+test("ADB inventory includes USB and Wi-Fi physical devices separately from running emulators", async () => {
+  const h = harness("devices");
+  h.view.tool = async (_m, _name, args) => args[0] === "devices" ?
+    "List of devices attached\r\n  USB123 device usb:1-2 product:phone model:Galaxy_Test transport_id:1\r\n192.168.1.7:37123 device model:Pixel_9\r\nemulator-5554 device model:sdk_gphone\r\nLOCKED unauthorized usb:1-3\r\nOLD offline\r\nDENIED no permissions (user is not in the plugdev group)\r\n" :
+    args.includes("getprop") ? "16\n" : args.includes("emu") ? "qa_avd\nOK\n" : "";
+  const android = await h.view.android({ machine: null, unix: true });
+  assert.equal(android.missing, false);
+  assert.equal(android.rows.length, 6);
+  assert.equal(android.rows[0].name, "Galaxy Test");
+  assert.equal(android.rows[0].detail, "Android 16 · USB");
+  assert.equal(android.rows[1].detail, "Android 16 · Wi-Fi");
+  assert.equal(android.rows[2].emulator, true);
+  assert.equal(android.rows[2].name, "qa avd");
+  assert.deepEqual(plain(android.rows.slice(3).map(r => r.state)), ["unauthorized", "offline", "no permissions"]);
+  h.view.kinds.set(null, { unix: true, mac: false });
+  h.view.avds = async () => [];
+  const group = await h.view.scan(null);
+  assert.equal(group.sections[0].title, "Android devices · ADB");
+  assert.equal(group.sections[0].rows.length, 5);
+  assert.equal(group.sections[1].rows[0].id, "emulator-5554");
+});
+
+test("ADB inventory does not discard a first device line when the header is absent", async () => {
+  const h = harness("devices");
+  h.view.tool = async (_m, _name, args) => args[0] === "devices" ? "USB123 unauthorized\n" : "";
+  assert.equal((await h.view.android({})).rows[0].id, "USB123");
+});
+
+test("remote Windows SDK discovery stays on that machine and handles quoted arguments as data", async () => {
+  const commands = [];
+  const h = harness("devices", { exec: async (command, args, options) => { commands.push({ command, args, options }); return ok("List of devices attached\nUSB123 device model:Phone\n"); } });
+  await h.view.tool({ machine: "windows", unix: false }, "adb", ["-s", "phone's-id", "get-state"]);
+  assert.equal(commands[0].command, "powershell");
+  assert.equal(commands[0].options.on, "windows");
+  const script = commands[0].args.at(-1);
+  assert.ok(script.includes("$env:ANDROID_HOME"));
+  assert.ok(script.includes("$env:LOCALAPPDATA"));
+  assert.ok(script.includes("'platform-tools\\adb.exe'"));
+  assert.ok(script.includes("'phone''s-id'"));
+});
+
+test("a remote physical device is rendered above the local stopped emulator catalog", () => {
+  const h = harness("devices");
+  h.view.groups = [
+    { machine: null, sections: [{ title: "Android emulators · not running", rows: [{ kind: "avd", id: "catalog", name: "Stopped catalog", state: "stopped" }] }] },
+    { machine: "windows", sections: [{ title: "Android devices · ADB", rows: [{ kind: "android", id: "USB123", name: "Connected phone", state: "online" }] }] },
+  ];
+  const text = textOf(h.view.render());
+  assert.ok(text.indexOf("Connected phone") < text.indexOf("Stopped catalog"));
+  assert.ok(find(h.view.render(), "devices-refresh"));
+});
+
+test("a slow remote machine does not hide the completed local ADB inventory", async () => {
+  const slow = deferred(), h = harness("devices", { machines: () => [{ name: "slow", layout: "ready" }] });
+  h.view.scan = machine => machine ? slow.promise : Promise.resolve({ machine: null, sections: [{ title: "ADB", rows: [{ id: "USB123", state: "online" }] }] });
+  h.view.refresh(h.cx); await h.settle();
+  assert.equal(h.view.groups[0].sections[0].rows[0].id, "USB123");
+  assert.equal(h.view.groups[1].loading, true);
+  slow.resolve({ machine: "slow", sections: [] }); await h.settle();
+  assert.equal(h.view.busy, false);
+});
+
+test("Unix ADB discovery executes custom SDK and NV_ADB paths with spaces and quotes", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "nv-adb-"));
+  try {
+    const sdk = path.join(root, "SDK's folder"), bin = path.join(sdk, "platform-tools", "adb");
+    mkdirSync(path.dirname(bin), { recursive: true });
+    writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+    for (const override of [false, true]) {
+      const h = harness("devices", { exec: async (command, args) => {
+        const env = { PATH: "/usr/bin:/bin", HOME: root, ANDROID_HOME: override ? "" : sdk, NV_ADB: override ? bin : "" };
+        const r = spawnSync(command, args, { env, encoding: "utf8" });
+        return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+      } });
+      const result = await h.view.tool({ machine: null, unix: true }, "adb", ["-s", "phone's-id", "get-state"]);
+      assert.equal(result, "-s\nphone's-id\nget-state\n");
+    }
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("booting a remote Windows AVD uses that machine and its discovered emulator", async () => {
+  const commands = [], h = harness("devices", { exec: async (command, args, options) => { commands.push({ command, args, options }); return ok(""); } });
+  h.view.refresh = () => {};
+  h.view.boot({ kind: "avd", state: "stopped", id: "Remote_AVD", name: "Remote AVD", m: { machine: "windows", unix: false } }, h.cx);
+  await h.settle();
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].options.on, "windows");
+  assert.equal(commands[0].command, "powershell");
+  const script = commands[0].args.at(-1);
+  assert.ok(script.includes("$env:NV_EMULATOR"));
+  assert.ok(script.includes("'emulator\\emulator.exe'"));
+  assert.ok(script.includes("Start-Process -FilePath $bin"));
+  assert.ok(script.includes("@('-avd','Remote_AVD')"));
+});
+
+test("an unavailable discovered emulator reports a boot failure", async () => {
+  const h = harness("devices", { exec: async () => ({ code: 127, stdout: "", stderr: "missing emulator" }) });
+  h.view.refresh = () => {};
+  h.view.boot({ kind: "avd", state: "stopped", id: "QA", name: "QA", m: { machine: null, unix: true } }, h.cx);
+  await h.settle();
+  assert.equal(h.view.noteError, true);
+  assert.equal(h.view.note, "Could not start QA");
+});
+
+test("Unix AVD boot executes NV_EMULATOR with a quoted SDK path", { skip: process.platform === "win32" }, async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "nv-emulator-"));
+  try {
+    const bin = path.join(root, "emulator's file"), log = path.join(root, "args");
+    writeFileSync(bin, '#!/bin/sh\nprintf "%s\\n" "$@" > "$NV_DEVICE_BOOT_LOG"\n', { mode: 0o755 });
+    const h = harness("devices", { exec: async (command, args) => {
+      const env = { PATH: "/usr/bin:/bin", HOME: root, NV_EMULATOR: bin, NV_DEVICE_BOOT_LOG: log };
+      const r = spawnSync(command, args, { env, encoding: "utf8" });
+      return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+    } });
+    h.view.refresh = () => {};
+    h.view.boot({ kind: "avd", state: "stopped", id: "QA's_AVD", name: "QA", m: { machine: "remote", unix: true } }, h.cx);
+    await h.settle();
+    let content;
+    for (let i = 0; i < 100; i++) {
+      try { content = readFileSync(log, "utf8"); if (content) break; } catch {}
+      await new Promise(resolve => setTimeout(resolve, 20));
+    }
+    assert.equal(content, "-avd\nQA's_AVD\n");
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
+
+test("ADB listener discovery reads only existing server ports and removes duplicate sockets", async () => {
+  const requests = [], h = harness("devices", { exec: async (command, args, options) => {
+    requests.push({ command, args, options });
+    return ok(command === "ps" ? "100 adb -L tcp:5037 fork-server server\n200 adb -L tcp:localhost:5043 fork-server server\n" :
+      "p100\nf19\nn127.0.0.1:5037\nn127.0.0.1:9222\np200\nf15\nn127.0.0.1:5043\nn[::1]:5043\n");
+  } });
+  assert.deepEqual(plain(await h.view.adbPorts({ machine: "mac", unix: true })), ["5037", "5043"]);
+  assert.equal(requests[0].command, "lsof");
+  assert.equal(requests[0].options.on, "mac");
+  assert.ok(requests[0].args.includes("/^adb$/"));
+});
+
+test("Windows ADB discovery excludes app forwarding ports owned by the server", async () => {
+  const h = harness("devices", { exec: async () => ok([{ command: '"C:\\SDK folder\\adb.exe" -L tcp:5043 fork-server server', ports: [5043, 9222, 8080] }]) });
+  assert.deepEqual(plain(await h.view.adbPorts({ machine: "windows", unix: false })), ["5043"]);
+});
+
+test("a Unix-socket ADB server's TCP forwards are never treated as ADB server endpoints", async () => {
+  const h = harness("devices", { exec: async () => ok([{ command: 'adb -L localfilesystem:/tmp/adb.sock fork-server server', ports: [5037, 9222] }]) });
+  assert.deepEqual(plain(await h.view.adbPorts({ machine: "windows", unix: false })), []);
+});
+
+test("Wi-Fi ADB connections include IPv6 and both secure and legacy mDNS names", async () => {
+  const h = harness("devices");
+  h.view.adbPorts = async () => [];
+  h.view.tool = async (_m, _name, args) => args.includes("devices") ?
+    "List of devices attached\n[fe80::1234%en0]:37123 device model:Phone\nadb-USB123-token._adb-tls-connect._tcp device model:Phone\nadb-USB456._adb._tcp. device model:Phone\n" : "16\n";
+  const data = await h.view.android({ machine: null, unix: true });
+  assert.equal(data.rows.length, 3);
+  assert.ok(data.rows.every(r => !r.emulator && r.connection === "Wi-Fi" && r.detail.includes("Wi-Fi")));
+});
+
+test("Wi-Fi Connect uses this computer's adb and refreshes after a successful connection", async () => {
+  const h = harness("devices"), calls = []; let refreshed = 0;
+  h.view.tool = async (m, name, args) => { calls.push({ m, name, args }); return "connected to 192.168.0.19:37123\n"; };
+  h.view.refresh = () => refreshed++;
+  h.view.wifiInput.set_value("192.168.0.19:37123");
+  find(h.view.render(), "devices-wifi-connect").events.on_click({}, h.cx);
+  h.view.connectWifi(h.cx); // a repeated click while connecting cannot start another request
+  await h.settle();
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].m.machine, null);
+  assert.equal(calls[0].m.unix, true);
+  assert.deepEqual(plain(calls[0].args), ["connect", "192.168.0.19:37123"]);
+  assert.equal(refreshed, 1);
+  assert.equal(h.view.noteError, false);
+});
+
+test("Wi-Fi Connect rejects invalid addresses and does not treat adb's exit-zero failures as success", async () => {
+  const h = harness("devices"); let calls = 0;
+  h.view.tool = async () => { calls++; return "failed to connect to 192.168.0.19:37123"; };
+  for (const address of ["", "192.168.0.19", "host:0", "host:65536", "host:5555; echo unsafe"]) {
+    h.view.wifiInput.set_value(address); h.view.connectWifi(h.cx); await h.settle();
+  }
+  assert.equal(calls, 0);
+  h.view.wifiInput.set_value("192.168.0.19:37123"); h.view.connectWifi(h.cx); await h.settle();
+  assert.equal(calls, 1);
+  assert.equal(h.view.noteError, true);
+  assert.equal(h.view.wifiBusy, false);
+});
+
+test("a physical phone on a dedicated ADB server appears and metadata uses the same port", async () => {
+  const h = harness("devices"), requests = [];
+  h.view.adbPorts = async () => ["5037", "5043"];
+  h.view.tool = async (_m, name, args) => {
+    requests.push({ name, args });
+    const port = args[0] === "-P" ? args[1] : null;
+    if (args.includes("devices")) return port === "5043" ? "List of devices attached\nUSB123 device usb:1-1 model:Galaxy_Test\n" :
+      "List of devices attached\nemulator-5554 device model:sdk_gphone\nUSB123 offline\n";
+    if (args.includes("getprop")) return "16\n";
+    if (args.includes("emu")) return "qa_avd\nOK\n";
+    return "";
+  };
+  const data = await h.view.android({ machine: null, unix: true });
+  assert.equal(data.rows.length, 2);
+  const phone = data.rows.find(r => r.id === "USB123");
+  assert.equal(phone.state, "online");
+  assert.equal(phone.adbPort, "5043");
+  assert.equal(phone.detail, "Android 16 · USB · ADB 5043");
+  assert.ok(requests.some(r => r.args.join(" ") === "-P 5043 -s USB123 shell getprop ro.build.version.release"));
+  assert.equal(data.missing, false);
+});

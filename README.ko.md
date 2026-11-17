@@ -92,6 +92,10 @@ Herdr 데스크톱 앱용 묶음은 `app/` 폴더에 있습니다. 설치 스크
 | Pull requests | `ctrl+shift+g` | 지금 있는 저장소의 열린 PR: 설명, 바뀐 파일, 댓글. 패널에서 댓글과 머지를 합니다 |
 | To-do | | 에이전트에게 시킨 일을 보여 주는 오른쪽 위의 떠 있는 목록 |
 
+`neon-violet` 레이아웃에서는 오른쪽 위 `+` 버튼에도 이 도구들(ALL agents, Devices, Pull requests, Browser)이 나옵니다. Files 패널에서 파일을 누르면 메인 영역에 편집기 탭으로 열립니다: 구문 강조, 줄 번호, 접기, 편집과 `ctrl+s` 저장, Markdown 미리보기. 다른 머신의 파일은 읽기 전용으로 열립니다. Mermaid 다이어그램은 그림이 아니라 원문으로 보입니다.
+
+macOS에서는 이 묶음의 모든 단축키가 `ctrl` 대신 `cmd`입니다. `cmd+shift+d`가 이미 창 나누기에 쓰이는 경우 Devices는 `cmd+shift+m`입니다.
+
 `all-agents` 레이아웃에서는:
 
 - 위쪽 칩을 누르거나 `ctrl+d` 완료, `ctrl+w` 작업 중, `ctrl+i` 대기, `ctrl+b` 막힘, `ctrl+a` 전체로 상태별로 골라 봅니다.

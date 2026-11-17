@@ -92,6 +92,10 @@ The same pack for the Herdr desktop app is in `app/`. The installers copy it int
 | Pull requests | `ctrl+shift+g` | Open pull requests of the repository you are in: description, changed files, comments. Comment and merge from the panel |
 | To-do | | A floating list at the top right of what you asked your agents to do |
 
+In the `neon-violet` layout the `+` button at the top right also lists these tools (ALL agents, Devices, Pull requests, Browser), and a file clicked in the Files panel opens in the main area as an editor tab: syntax highlighting, line numbers, folding, editing with `ctrl+s` to save, and a rendered preview for Markdown. Files on another machine open read-only. Mermaid diagrams are shown as source, not drawn.
+
+On macOS every shortcut of this pack uses `cmd` where this page says `ctrl`. Where `cmd+shift+d` is already taken (it splits the pane), Devices is on `cmd+shift+m`.
+
 In the `all-agents` layout:
 
 - Filter by state with the chips at the top or with `ctrl+d` done, `ctrl+w` working, `ctrl+i` idle, `ctrl+b` blocked, `ctrl+a` all.

@@ -92,6 +92,10 @@ Le même ensemble pour l'application de bureau Herdr se trouve dans `app/`. Si l
 | Pull requests | `ctrl+shift+g` | Les pull requests ouvertes du dépôt où vous êtes : description, fichiers modifiés, commentaires. Commentez et fusionnez depuis le panneau |
 | To-do | | Une liste flottante en haut à droite de ce que vous avez demandé à vos agents |
 
+Dans la disposition `neon-violet`, le bouton `+` en haut à droite liste aussi ces outils (ALL agents, Devices, Pull requests, Browser), et un fichier cliqué dans le panneau Files s'ouvre dans la zone principale comme onglet d'éditeur : coloration syntaxique, numéros de ligne, pliage, édition avec `ctrl+s` pour enregistrer, et aperçu rendu pour le Markdown. Les fichiers d'une autre machine s'ouvrent en lecture seule. Les diagrammes Mermaid sont affichés sous forme de source, sans être dessinés.
+
+Sur macOS, tous les raccourcis de ce pack utilisent `cmd` là où cette page indique `ctrl`. Si `cmd+shift+d` est déjà pris (il divise le panneau), Devices est sur `cmd+shift+m`.
+
 Dans la disposition `all-agents` :
 
 - Filtrez par état avec les pastilles du haut ou avec `ctrl+d` terminés, `ctrl+w` en cours, `ctrl+i` inactifs, `ctrl+b` bloqués, `ctrl+a` tous.

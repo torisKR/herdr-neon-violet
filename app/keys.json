@@ -18,7 +18,8 @@
         "direction": "right",
         "mod": "prs"
       }
-    }
+    },
+    "ctrl-shift-m": "mod.open:devices"
   },
   "layout:all-agents": {
     "ctrl-a": "all-agents.all",
@@ -26,5 +27,9 @@
     "ctrl-w": "all-agents.working",
     "ctrl-i": "all-agents.idle",
     "ctrl-b": "all-agents.blocked"
+  },
+  "mod:editor": {
+    "ctrl-s": "editor.save",
+    "ctrl-shift-v": "editor.preview"
   }
 }

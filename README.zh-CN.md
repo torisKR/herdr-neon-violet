@@ -92,6 +92,10 @@ herdr 窗格的背景使用外层终端的背景色,所以终端也要用同样�
 | Pull requests | `ctrl+shift+g` | 当前仓库的未合并拉取请求:说明、改动文件、评论。可在面板里评论和合并 |
 | To-do | | 悬浮在右上角的列表,显示你交给代理的任务 |
 
+在 `neon-violet` 布局中,右上角的 `+` 按钮也会列出这些工具(ALL agents、Devices、Pull requests、Browser)。在 Files 面板里点击文件,会在主区域以编辑器标签页打开:语法高亮、行号、折叠、可编辑并用 `ctrl+s` 保存,Markdown 可渲染预览。其他机器上的文件以只读方式打开。Mermaid 图表显示为源码,不会绘制。
+
+在 macOS 上,这套内容的所有快捷键都用 `cmd` 代替 `ctrl`。如果 `cmd+shift+d` 已被占用(用于拆分窗格),Devices 使用 `cmd+shift+m`。
+
 在 `all-agents` 布局中:
 
 - 点击顶部的筛选按钮,或用 `ctrl+d` 已完成、`ctrl+w` 工作中、`ctrl+i` 空闲、`ctrl+b` 受阻、`ctrl+a` 全部,按状态筛选。

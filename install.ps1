@@ -43,7 +43,7 @@ if (Test-Path $app) {
   Copy-Item $nv (Join-Path $app 'bin\nv.exe') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','todos') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','todos','editor','nv-tabs','nv-new-menu','nv-files') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
   "installed Herdr app pack -> $app"
   '  layout: herdr-app do layout.switch --name neon-violet   (dark, translucent, with the to-do list)'

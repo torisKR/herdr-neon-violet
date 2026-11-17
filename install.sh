@@ -37,7 +37,7 @@ if [ -d "$app" ]; then
   cp "$nv" "$app/bin/nv"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
-  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/todos" "$app/mods/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/todos" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$app/mods/"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
   echo "installed Herdr app pack -> $app"
   echo "  layout: herdr-app do layout.switch --name neon-violet   (dark, translucent, with the to-do list)"

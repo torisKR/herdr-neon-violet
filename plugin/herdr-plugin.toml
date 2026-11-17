@@ -1,0 +1,61 @@
+id = "neon-violet"
+name = "Neon Violet"
+version = "0.1.0"
+min_herdr_version = "0.9.5"
+description = "ALL agents board, device list and an in-terminal browser for herdr"
+platforms = ["linux", "macos", "windows"]
+
+# ALL agents: one tab that shows every running agent at once
+[[actions]]
+id = "all_agents"
+title = "ALL agents board"
+contexts = ["workspace"]
+command = ["node", "open.mjs", "agents"]
+
+[[panes]]
+id = "agents"
+title = "ALL agents"
+placement = "tab"
+command = ["node", "agents-board.mjs"]
+
+# Devices: adb devices, Android emulators, iOS simulators at a glance
+[[actions]]
+id = "devices"
+title = "Devices (adb / emulators / simulators)"
+contexts = ["workspace"]
+command = ["node", "open.mjs", "devices"]
+
+[[panes]]
+id = "devices"
+title = "Devices"
+placement = "popup"
+width = "80%"
+height = "70%"
+command = ["node", "devices.mjs"]
+
+# Browser: text-mode web browser in a split pane (works over SSH)
+[[actions]]
+id = "browse"
+title = "Browser"
+contexts = ["workspace"]
+command = ["node", "open.mjs", "browser"]
+
+[[actions]]
+id = "open_link"
+title = "Open link in the herdr browser"
+contexts = ["workspace"]
+command = ["node", "open.mjs", "browser"]
+
+[[panes]]
+id = "browser"
+title = "Browser"
+placement = "split"
+command = ["node", "browse.mjs"]
+
+# Ctrl+click on a localhost / 127.0.0.1 link opens it inside herdr, on the
+# machine where the pane runs (the dev server lives there, not on your laptop).
+[[link_handlers]]
+id = "localhost"
+title = "Open localhost in herdr browser"
+pattern = "^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/.*)?$"
+action = "open_link"

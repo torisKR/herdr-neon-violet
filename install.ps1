@@ -40,14 +40,30 @@ Copy-Item (Join-Path $here 'terminal\windows-terminal.json') (Join-Path $frag 'n
 $app = if ($env:HERDR_APP_HOME) { $env:HERDR_APP_HOME } else { Join-Path $env:USERPROFILE '.config\herdr-app' }
 if (Test-Path $app) {
   foreach ($d in 'themes','layouts','mods','bin') { New-Item -ItemType Directory -Force (Join-Path $app $d) | Out-Null }
+  $retiredMod = Join-Path $app 'mods\todos'
+  if (Test-Path $retiredMod) {
+    $oldNv = Join-Path $app 'bin\nv.exe'
+    if (Test-Path $oldNv) {
+      & $oldNv todo path *> $null
+      if ($LASTEXITCODE -eq 0) {
+        & $oldNv todo hooks remove
+        if ($LASTEXITCODE -ne 0) { throw 'Could not remove the retired to-do hooks' }
+      }
+    }
+    $retired = Join-Path $app ('backups\retired-todos-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    New-Item -ItemType Directory -Force $retired | Out-Null
+    Move-Item $retiredMod $retired
+  }
   Copy-Item $nv (Join-Path $app 'bin\nv.exe') -Force
+  Copy-Item (Join-Path $here 'app\browser\nv-preview.mjs') (Join-Path $app 'bin\nv-preview.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','todos','editor','nv-tabs','nv-new-menu','nv-files') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','editor','nv-tabs','nv-new-menu','nv-files') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
+  Write-Warning "Graphical Browser requires macOS/Linux; Windows keeps nv browse as the terminal fallback."
   "installed Herdr app pack -> $app"
-  '  layout: herdr-app do layout.switch --name neon-violet   (dark, translucent, with the to-do list)'
+  '  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)'
   '  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u'
-  '  to-do hooks for Claude Code and Codex: see the README ("To-do list")'
+  '  Code highlighting ctrl+shift+h · Keyboard shortcuts ctrl+shift+k (cmd on macOS)'
 }
 'done.'

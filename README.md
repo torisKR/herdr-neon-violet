@@ -87,12 +87,13 @@ The same pack for the Herdr desktop app is in `app/`. The installers copy it int
 | Theme `neon-violet` | | The same colors for the app. Pick it in Settings, or run `herdr-app do app.theme --name neon-violet` |
 | Layout `all-agents` | `ctrl+shift+a` | Every agent's live terminal in one grid, most urgent first. `ctrl+shift+l` switches layouts back |
 | Devices | `ctrl+shift+d` | Devices, emulators and simulators of this computer and of every connected machine. Click a stopped one to boot it |
-| Browser | `ctrl+shift+u` | Opens the text browser in a split on the right |
-| Layout `neon-violet` | `ctrl+shift+l` | The main layout with a blurred, translucent window and the to-do list |
+| Browser | `ctrl+shift+u` | Opens interactive Chromium on macOS/Linux (mouse, keyboard and agent automation); Windows keeps the text reader |
+| Layout `neon-violet` | `ctrl+shift+l` | The main layout with a blurred, translucent window |
 | Pull requests | `ctrl+shift+g` | Open pull requests of the repository you are in: description, changed files, comments. Comment and merge from the panel |
-| To-do | | A floating list at the top right of what you asked your agents to do |
+| Code highlighting | `ctrl+shift+h` | Paste code and view syntax colors, line numbers and folding |
+| Keyboard shortcuts | `ctrl+shift+k` | Search current bindings, actions and contexts |
 
-In the `neon-violet` layout the `+` button at the top right also lists these tools (ALL agents, Devices, Pull requests, Browser), and a file clicked in the Files panel opens in the main area as an editor tab: syntax highlighting, line numbers, folding, editing with `ctrl+s` to save, and a rendered preview for Markdown. Files on another machine open read-only. Mermaid diagrams are shown as source, not drawn.
+In the `neon-violet` layout the `+` button at the top right also lists these tools (ALL agents, Devices, Code highlighting, Keyboard shortcuts, Pull requests, Browser), and a file clicked in the Files panel opens in the main area as an editor tab: syntax highlighting, line numbers, folding, editing with `ctrl+s` to save, and a rendered preview for Markdown. Files on another machine open read-only. Mermaid diagrams are shown as source, not drawn.
 
 On macOS every shortcut of this pack uses `cmd` where this page says `ctrl`. Where `cmd+shift+d` is already taken (it splits the pane), Devices is on `cmd+shift+m`.
 
@@ -100,7 +101,7 @@ In the `all-agents` layout:
 
 - Filter by state with the chips at the top or with `ctrl+d` done, `ctrl+w` working, `ctrl+i` idle, `ctrl+b` blocked, `ctrl+a` all.
 - While this layout is on screen those five keys belong to the filter and do not reach the program in the terminal.
-- Click a card's header to open that agent, or “Back to Herdr” to leave the board. When opened from the `+` menu, both return to the layout you came from, keeping its menu tools and To-do list. Direct entry defaults to Neon Violet when installed.
+- Click a card's header to open that agent, or “Back to Herdr” to leave the board. When opened from the `+` menu, both return to the layout you came from, keeping its menu tools. Direct entry defaults to Neon Violet when installed.
 
 The theme is dark. If the app is set to always use the light appearance, switch it to dark in Settings for the theme to show. Dragging over text already copies in the app, on remote machines too.
 
@@ -142,19 +143,13 @@ The config sets `copy_on_select = true`, so dragging over text in herdr copies i
 
 The Herdr desktop app already has a file explorer (the Files button at the top right), so this pack adds only the pull request panel there.
 
-## To-do list
+## Code highlighting and keyboard shortcuts
 
-The Herdr app shows a floating list at the top right. Each instruction you give Claude Code or Codex becomes an item, and the item is checked when that turn ends, with a notification. You can add, check and remove items yourself, and the list includes every connected machine.
+Open **Code highlighting** from `+` or with `ctrl+shift+h`. Paste code, choose its syntax, toggle highlighting or line wrapping, and use line numbers and folding. The draft is saved on this computer.
 
-- Turn it on for your agents once per machine: `~/.config/herdr-app/bin/nv todo hooks install`. It adds two hooks (prompt submitted, turn ended) to Claude Code's `settings.json` and Codex's `hooks.json`, keeps the hooks you already have, and writes a backup. `nv todo hooks remove` takes them out.
-- `↔` and `↕` change the width and height, `–` folds it, and you can drag it anywhere.
-- From a shell: `nv todo add "text"`, `nv todo done <id>`, `nv todo list`.
-- The `文` button selects Korean, English, Japanese or Simplified Chinese and remembers your choice. “Follow Herdr” (the default) follows Herdr's `language` or `locale` setting, with English as the fallback when none is available or supported.
-- Agent-generated headlines follow the selected language, even for instructions written in another language. Existing headlines are localized in small batches and cached per language. Manually added text and the original instruction in details stay as entered. This uses the existing Claude Haiku CLI; `NV_TODO_NO_SUMMARY=1` also disables localization. Update `nv` on connected machines to localize their headlines.
-- Scroll inside the list; `↑` and `↓` jump to its first and last items. Rows keep their height, and background refreshes keep your scroll position.
-- Priorities are `P0` urgent, `P1` high, `P2` normal and `P3` low. Automatic priority uses instruction keywords (such as urgent, error or optional) without a model call. Open items are sorted by priority, urgent/high items are emphasized, and completed items stay below them. Click a priority badge to cycle, or open the details to pick a level or return to Auto. From a shell: `nv todo priority <id> high` or `nv todo priority <id> auto`. Update `nv` on each connected machine to edit its priorities.
+Open **Keyboard shortcuts** from `+` or with `ctrl+shift+k`. It reads the current Herdr bindings, including custom keys, and searches by key, action or context. On macOS these two shortcuts use `cmd` instead of `ctrl`.
 
-Each row shows a short headline, and clicking it opens the details: the whole instruction, where it runs, when it started and finished, and a button that takes you to the agent. The headline appears at once from simple rules and is replaced a few seconds later by one written by a small model (Claude Haiku, a separate headless call that uses a few hundred tokens per instruction and adds nothing to the agent's own conversation). Set `NV_TODO_NO_SUMMARY=1` to keep the rule-based headlines and spend no tokens.
+Both tools and the `+` menu support English, Japanese, Simplified Chinese and Korean. Use “Follow Herdr” for the app's `language`/`locale`, or select a language at the bottom of either tool.
 
 ## Devices
 
@@ -198,3 +193,5 @@ The colors were inspired by a screenshot of the Cyber Purple 77 theme for VS Cod
 ## License
 
 MIT
+
+Graphical browser setup, agent controls, `.env` highlighting and Markdown/HTML previews: [Browser and document previews](docs/BROWSER.md).

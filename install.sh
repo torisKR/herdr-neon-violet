@@ -34,14 +34,24 @@ fi
 app="${HERDR_APP_HOME:-$HOME/.config/herdr-app}"
 if [ -d "$app" ]; then
   mkdir -p "$app/themes" "$app/layouts" "$app/mods" "$app/bin"
+  # Remove this pack's retired hooks before replacing the older nv binary.
+  if [ -d "$app/mods/todos" ]; then
+    if [ -x "$app/bin/nv" ] && "$app/bin/nv" todo path >/dev/null 2>&1; then
+      "$app/bin/nv" todo hooks remove
+    fi
+    retired="$app/backups/retired-todos-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$retired"
+    mv "$app/mods/todos" "$retired/"
+  fi
   cp "$nv" "$app/bin/nv"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
-  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/todos" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$app/mods/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$app/mods/"
+  sh "$here/scripts/install-browser.sh"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
   echo "installed Herdr app pack -> $app"
-  echo "  layout: herdr-app do layout.switch --name neon-violet   (dark, translucent, with the to-do list)"
+  echo "  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)"
   echo "  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u"
-  echo "  to-do hooks for Claude Code and Codex: see the README (\"To-do list\")"
+  echo "  Code highlighting ctrl+shift+h · Keyboard shortcuts ctrl+shift+k (cmd on macOS)"
 fi
 echo "done. iTerm2: import terminal/neon-violet.itermcolors (Settings > Profiles > Colors > Color Presets)."

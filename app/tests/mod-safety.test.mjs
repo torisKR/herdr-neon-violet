@@ -39,10 +39,12 @@ function harness(name, overrides = {}, storage = new Map()) {
     spawn(fn) { const task = fn(cx); tasks.push(task); task.catch(error => failures.push(error)); },
   };
   class State {
-    constructor(options) { this.text = options?.value ?? ""; this.handlers = {}; }
+    constructor(options) { this.text = options?.value ?? ""; this.options = options; this.handlers = {}; this.selection = { start: 0, end: 0 }; }
     value() { return this.text; }
     on(event, fn) { this.handlers[event] = fn; }
     set_value(text) { this.text = text; this.handlers.change?.({}, cx); }
+    selected_range() { return this.selection; }
+    set_selected_range(range) { this.selection = range; }
     release() {} focus() {}
   }
   const native = {
@@ -51,7 +53,7 @@ function harness(name, overrides = {}, storage = new Map()) {
     spaces: () => [{ id: "s", active: true, machine: null, folder: "/repo", tabs: [] }],
     panes: () => [{ pane: "p", tab: "tab", terminal: "t", cwd: "/repo" }],
     focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: "t", cwd: "/repo" }),
-    window: () => ({ platform: "macos" }), appHome: () => "/local/herdr-app",
+    home: () => "/home/test", window: () => ({ platform: "macos" }), appHome: () => "/local/herdr-app",
     shared: () => null, setShared() {}, layout: () => null, keys: () => [],
     agents: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
     nextCommand: () => new Promise(() => {}),
@@ -66,7 +68,10 @@ function harness(name, overrides = {}, storage = new Map()) {
     "gpui-kit": { View: class {}, div: element, svg: element, image: element },
     "gpui-base": { h_flex: element, v_flex: element, EditorState: { new: options => new State(options) },
       InputState: { new: options => new State(options) }, Editor: { new: element }, Input: { new: element },
-      TextView: { markdown: element }, ScrollHandle: { new: () => ({ scroll_to_item(index) { scrolls.push(index); } }) } },
+      TextView: {
+        markdown: (id, value) => { const el = element(); el.previewKind = "markdown"; el.value = value; return el; },
+        html: (id, value) => { const el = element(); el.previewKind = "html"; el.value = value; return el; },
+      }, ScrollHandle: { new: () => ({ scroll_to_item(index) { scrolls.push(index); } }) } },
     herdr: native,
   };
   const source = readFileSync(new URL(`../mods/${name}/main.js`, import.meta.url), "utf8")
@@ -85,235 +90,105 @@ function harness(name, overrides = {}, storage = new Map()) {
   } };
 }
 
-const todoCopy = [
-  ["ko-KR", "할 일", "할 일 추가", "완료 처리", "다시 열기", "완료 1개 지우기", "직접 추가함", "초", "할 일 완료"],
-  ["en-US", "To-do", "Add a to-do", "Mark done", "Reopen", "Clear 1 done", "added by you", "s", "To-do done"],
-  ["ja_JP", "やること", "やることを追加", "完了にする", "再開", "完了 1件を削除", "自分で追加", "秒", "やることが完了"],
-  ["zh-CN", "待办", "添加待办事项", "标为完成", "重新打开", "清除 1项已完成", "自己添加", "秒", "待办已完成"],
-];
 
-for (const [locale, title, placeholder, done, reopen, clear, added, seconds, completed] of todoCopy) {
-  test(`To-do follows Herdr ${locale} for labels, details, elapsed time and completion alerts`, async () => {
-    const notifications = [];
-    const item = { id: "one", source: "codex", text: "original headline", detail: "original instruction", created: 1000, done: false };
-    const h = harness("todos", {
-      settings: () => ({ language: locale }), machines: () => [], notify: value => notifications.push(value),
-      exec: async () => ok({ items: [item] }),
-    });
-    let tree = h.view.render();
-    assert.ok(textOf(tree).includes(title));
-    assert.equal(textOf(find(tree, "todos-placeholder")), placeholder);
-    h.view.items = [item]; h.view.open = "local-one";
-    tree = h.view.render();
-    assert.equal(textOf(find(tree, "todo-toggle-local-one")), done);
-    assert.ok(textOf(tree).includes("original instruction"));
-
-    h.view.items = [{ ...item, source: "me", done: true, done_at: 1045 }];
-    tree = h.view.render();
-    assert.equal(textOf(find(tree, "todo-toggle-local-one")), reopen);
-    assert.equal(textOf(find(tree, "todos-clear")), clear);
-    assert.ok(textOf(tree).includes(added));
-    assert.ok(textOf(tree).includes(`45${seconds}`));
-
-    await h.view.refresh(h.cx); await h.settle();
-    item.done = true; item.done_at = 1045;
-    h.view.refresh(h.cx); await h.settle();
-    assert.deepEqual(plain(notifications), [{ title: completed, body: "original headline", level: "success", timeout: 6000 }]);
+for (const [locale, codeTitle, shortcutsTitle] of [
+  ["en-US", "Code highlighting", "Keyboard shortcuts"], ["ja-JP", "コードハイライト", "キーボードショートカット"],
+  ["zh-CN", "代码高亮", "键盘快捷键"], ["ko-KR", "코드 하이라이팅", "단축키 모음"],
+]) {
+  test(`code, shortcuts and + tools follow Herdr ${locale}`, () => {
+    const bindings = [
+      { section: "global", keys: "cmd-shift-h", action: "mod.open:nv-code" },
+      { section: "global", keys: "cmd-shift-k", action: "mod.open:nv-shortcuts" },
+    ];
+    const overrides = { settings: () => ({ language: locale }), keys: () => bindings };
+    const code = harness("nv-code", overrides), shortcuts = harness("nv-shortcuts", overrides), menu = harness("nv-new-menu", overrides);
+    assert.ok(textOf(code.view.render()).includes(codeTitle));
+    assert.ok(textOf(shortcuts.view.render()).includes(shortcutsTitle));
+    assert.equal(shortcuts.view.entries().length, 2);
+    assert.ok(textOf(find(menu.view.render(), "nv-code")).includes(codeTitle));
+    const tree = menu.view.render();
+    find(tree, "nv-code").events.on_click({}, menu.cx);
+    find(tree, "nv-shortcuts").events.on_click({}, menu.cx);
+    assert.deepEqual(menu.calls, [
+      { name: "mod.open", args: { name: "nv-code" } }, { name: "mod.open", args: { name: "nv-shortcuts" } },
+    ]);
   });
 }
 
-test("To-do language menu persists Korean, preserves drafts and returns to live Herdr settings", () => {
+test("syntax and wrapping changes preserve the draft and selection without running commands", async () => {
   const storage = new Map();
-  let locale = "en";
-  const overrides = { settings: () => ({ locale }) };
-  const h = harness("todos", overrides, storage);
-  const input = h.view.input;
-  input.set_value("작성 중인 할 일");
-  find(h.view.render(), "todos-language").events.on_click({}, h.cx);
-  const menu = h.view.render();
-  for (const code of ["auto", "ko", "en", "ja", "zh"]) assert.ok(find(menu, `todos-language-${code}`));
-  find(menu, "todos-language-ko").events.on_click({}, h.cx);
-  assert.equal(storage.get("language"), "ko");
-  assert.equal(h.view.locale(), "ko");
-  assert.equal(h.view.languageMenu, false);
-  assert.equal(h.view.input, input);
-  assert.equal(h.view.input.value(), "작성 중인 할 일");
-  assert.equal(find(h.view.render(), "todos-placeholder"), undefined);
-
-  locale = "ja";
-  assert.equal(h.view.locale(), "ko");
-  const reloaded = harness("todos", overrides, storage);
-  assert.equal(reloaded.view.locale(), "ko");
-  reloaded.view.setLanguage("auto", reloaded.cx);
-  assert.equal(reloaded.view.locale(), "ja");
-  locale = "zh-Hans-CN";
-  assert.equal(reloaded.view.locale(), "zh");
-  assert.equal(harness("todos", overrides, storage).view.locale(), "zh");
+  const h = harness("nv-code", { checking: () => false }, storage);
+  h.view.state.set_value("const answer = 42;\n");
+  h.view.state.set_selected_range({ start: 6, end: 12 });
+  h.view.selectGrammar("rs", h.cx);
+  assert.equal(h.view.state.options.language, "rs");
+  assert.deepEqual(h.view.state.selected_range(), { start: 6, end: 12 });
+  h.view.toggle("wrap", h.cx);
+  assert.equal(h.view.state.options.soft_wrap, true);
+  h.view.toggle("highlight", h.cx);
+  assert.equal(h.view.state.options.language, "txt");
+  assert.equal(h.view.state.value(), "const answer = 42;\n");
+  assert.equal(storage.get("code"), "const answer = 42;\n");
+  const reopened = harness("nv-code", {}, storage);
+  assert.equal(reopened.view.state.value(), "const answer = 42;\n");
+  assert.equal(reopened.view.grammar, "rs");
+  assert.equal(reopened.view.highlight, false);
+  assert.deepEqual(h.calls, []);
+  await h.settle();
 });
 
-test("To-do safely falls back for absent, unsupported and malformed language preferences", () => {
-  for (const value of [null, "", "fr-FR", "constructor", "toString", {}, 123]) {
-    const storage = new Map([["language", value]]);
-    const h = harness("todos", { settings: () => ({ language: value }) }, storage);
-    assert.equal(h.view.locale(), "en");
-    assert.doesNotThrow(() => h.view.render());
-    h.view.setLanguage("invalid", h.cx);
-    assert.equal(storage.get("language"), value);
-  }
-  const h = harness("todos", { settings: () => ({ language: "system", locale: " KO_kr " }) });
-  assert.equal(h.view.locale(), "ko");
+test("an empty code draft stays empty and language switches never rewrite it", () => {
+  const storage = new Map([["code", ""]]), state = new Map();
+  const shared = key => state.get(key), setShared = (key, value) => state.set(key, value);
+  const h = harness("nv-code", { shared, setShared, settings: () => ({ locale: "zh-TW" }) }, storage);
+  const shortcuts = harness("nv-shortcuts", { shared, setShared });
+  h.view.setLanguage("ko");
+  assert.ok(textOf(h.view.render()).includes("코드 하이라이팅"));
+  assert.ok(textOf(shortcuts.view.render()).includes("단축키 모음"));
+  h.view.setLanguage("ja");
+  assert.ok(textOf(h.view.render()).includes("コードハイライト"));
+  assert.equal(h.view.state.value(), "");
+  h.view.setLanguage("auto");
+  assert.ok(textOf(h.view.render()).includes("代码高亮"));
+  h.view.setLanguage("constructor");
+  assert.equal(state.get("nv.language"), "auto");
 });
 
-test("To-do language selection remains available while folded and does not change list actions", () => {
-  const h = harness("todos", { settings: () => ({ language: "ko" }) });
-  h.view.collapsed = true;
-  find(h.view.render(), "todos-language").events.on_click({}, h.cx);
-  find(h.view.render(), "todos-language-ja").events.on_click({}, h.cx);
-  assert.equal(h.view.collapsed, true);
-  const changes = [];
-  h.view.change = (_cx, args, on) => changes.push(plain({ args, on }));
-  h.view.items = [{ id: "remote-item", source: "me", text: "keep this", on: "remote", done: true, created: 1000, done_at: 1060 }];
-  h.view.open = "remote-remote-item"; h.view.collapsed = false;
-  const tree = h.view.render();
-  find(tree, "todo-toggle-remote-remote-item").events.on_click({}, h.cx);
-  find(tree, "todos-clear").events.on_click({}, h.cx);
-  h.view.input.set_value("日本語で入力"); h.view.add(h.cx);
-  assert.deepEqual(changes, [
-    { args: ["toggle", "remote-item"], on: "remote" },
-    { args: ["clear-done"], on: "remote" },
-    { args: ["add", "--source", "me", "日本語で入力"], on: null },
-  ]);
+test("shortcut search uses live bindings, localized descriptions and actual contexts", () => {
+  let bindings = [
+    { section: "global", keys: "cmd-shift-h", action: "mod.open:nv-code" },
+    { section: "mod:editor", keys: "cmd-s", action: "editor.save" },
+    { section: "global", keys: "", action: "unbound" },
+  ];
+  const h = harness("nv-shortcuts", { keys: () => bindings, settings: () => ({ language: "ko" }) });
+  assert.equal(h.view.entries().length, 2);
+  h.view.input.set_value("파일 저장");
+  assert.equal(h.view.entries()[0].action, "editor.save");
+  assert.equal(h.view.entries()[0].context, "패널 · editor");
+  h.view.input.set_value("global");
+  assert.equal(h.view.entries().length, 1);
+  bindings = [{ section: "global", keys: "ctrl-alt-x", action: "my.custom.command" }];
+  h.view.input.set_value("my.custom");
+  assert.equal(h.view.entries()[0].keys, "ctrl-alt-x");
+  h.view.input.set_value("not a key");
+  assert.ok(textOf(h.view.render()).includes("일치하는 단축키가 없습니다"));
 });
 
-test("generated To-do headlines follow the chosen language while manual text and details stay intact", () => {
-  const h = harness("todos", { settings: () => ({ language: "ko" }) });
-  const item = { id: "one", source: "codex", text: "Fix scrolling", detail: "Please fix scrolling in the list", created: 1,
-    titles: { ko: "스크롤 오류 수정", en: "Fix scrolling", ja: "スクロールを修正", zh: "修复滚动" } };
-  h.view.items = [item]; h.view.open = "local-one";
-  for (const locale of ["ko", "en", "ja", "zh"]) {
-    h.view.setLanguage(locale, h.cx);
-    assert.equal(h.view.headline(item), item.titles[locale]);
-    assert.ok(textOf(h.view.render()).includes(item.titles[locale]));
-    assert.ok(textOf(h.view.render()).includes(item.detail));
-  }
-  assert.equal(h.view.headline({ ...item, source: "me", text: "AI slop 제거" }), "AI slop 제거");
-  assert.equal(item.text, "Fix scrolling");
+test("shortcut labels distinguish Command, Control, modifier keys and a minus key", () => {
+  const bindings = [{ section: "global", keys: "cmd--", action: "app.zoom_out" }];
+  const mac = harness("nv-shortcuts", { keys: () => bindings });
+  assert.ok(textOf(mac.view.render()).includes("⌘−"));
+  assert.ok(!textOf(mac.view.render()).includes("⌘−−"));
+  const win = harness("nv-shortcuts", { keys: () => [{ section: "global", keys: "ctrl-shift-k", action: "mod.open:nv-shortcuts" }], window: () => ({ platform: "windows" }) });
+  assert.ok(textOf(win.view.render()).includes("Ctrl+Shift+K"));
 });
 
-test("localization batches once per machine and language and reuses cached titles", async () => {
-  let checking = true;
-  const h = harness("todos", { checking: () => checking, settings: () => ({ language: "ko" }) });
-  checking = false;
-  const translated = deferred(), requests = []; let refreshes = 0;
-  h.view.items = [{ id: "one", source: "codex", text: "Fix scrolling", on: "remote", created: 1 }];
-  h.view.nv = (args, on, timeout) => { requests.push(plain({ args, on, timeout })); return translated.promise; };
-  h.view.refresh = () => { refreshes++; };
-  h.view.localize(h.cx, "remote"); h.view.localize(h.cx, "remote");
-  assert.deepEqual(requests, [{ args: ["localize", "ko"], on: "remote", timeout: 120000 }]);
-  translated.resolve(ok({ translated: 1 })); await h.settle();
-  assert.equal(refreshes, 1);
-  h.view.items[0].titles = { ko: "스크롤 오류 수정" };
-  h.view.localize(h.cx, "remote");
-  assert.equal(requests.length, 1);
-  h.view.setLanguage("ja", h.cx); h.view.localize(h.cx, "remote"); await h.settle();
-  assert.equal(requests[1].args[1], "ja");
-  h.view.setLanguage("ko", h.cx); h.view.localize(h.cx, "remote"); await h.settle();
-  assert.equal(requests[2].args[1], "ko", "returning to a cached language still updates the hook preference");
-});
-
-test("completion notifications use the selected localized headline", async () => {
-  const notices = [];
-  const item = { id: "one", source: "codex", text: "Fix scrolling", titles: { ko: "스크롤 오류 수정" }, created: 1, done: false };
-  const h = harness("todos", { settings: () => ({ language: "ko" }), machines: () => [],
-    exec: async () => ok({ items: [item] }), notify: n => notices.push(n) });
-  h.view.refresh(h.cx); await h.settle(); item.done = true; item.done_at = 2;
-  h.view.refresh(h.cx); await h.settle();
-  assert.equal(notices[0].body, "스크롤 오류 수정");
-});
-
-test("unavailable To-do stores are not asked to generate localized headlines", async () => {
-  const requests = [];
-  const h = harness("todos", { machines: () => [{ name: "remote", layout: "ready" }],
-    exec: async (_command, _args, options) => options.on ? { code: 1, stderr: "missing nv" } : ok({ items: [] }) });
-  h.view.localize = (_cx, on) => requests.push(on);
-  h.view.refresh(h.cx); await h.settle();
-  assert.deepEqual(requests, [null]);
-});
-
-test("failed localization backs off instead of repeating model requests each refresh", async () => {
-  let checking = true, requests = 0;
-  const notices = [];
-  const h = harness("todos", { checking: () => checking, notify: n => notices.push(n) });
-  checking = false;
-  h.view.items = [{ id: "one", source: "codex", text: "English headline", on: null }];
-  h.view.nv = async () => { requests++; return { code: 1, stdout: "", stderr: "model unavailable" }; };
-  h.view.localize(h.cx, null); await h.settle();
-  h.view.localize(h.cx, null); await h.settle();
-  assert.equal(requests, 1);
-  assert.equal(notices.length, 1);
-});
-
-test("long To-do lists retain row height and let the native scroll handle reach either end", async () => {
-  const items = Array.from({ length: 50 }, (_, n) => ({ id: String(n), text: `task ${n}`, source: "me", created: 1000 - n, done: false }));
-  const h = harness("todos", { machines: () => [], exec: async () => ok({ items }) });
-  h.view.refresh(h.cx); await h.settle();
-  const tree = h.view.render(), viewport = find(tree, "todos-list");
-  assert.equal(viewport.items.length, 50);
-  assert.ok(viewport.styles.h[0] < viewport.items.reduce((height, row) => height + row.styles.h[0], 0));
-  assert.ok(viewport.items.every(row => Object.hasOwn(row.styles, "flex_none")));
-  find(tree, "todos-bottom").events.on_click({}, h.cx);
-  find(tree, "todos-top").events.on_click({}, h.cx);
-  assert.deepEqual(h.scrolls, [49, 0]);
-  h.view.refresh(h.cx); await h.settle();
-  assert.deepEqual(h.scrolls, [49, 0], "background polling must not reset the person's scroll position");
-});
-
-test("To-do sorts open tasks by priority, highlights important work and keeps completed tasks last", async () => {
-  const items = [
-    { id: "low", priority: 3, created: 1000 }, { id: "normal", created: 100 },
-    { id: "high", priority: 1, created: 10 }, { id: "urgent-old", priority: 0, created: 1 },
-    { id: "urgent-new", priority: 0, created: 2 }, { id: "done", priority: 0, created: 2000, done: true, done_at: 3000 },
-  ].map(item => ({ text: item.id, source: "me", ...item }));
-  const h = harness("todos", {
-    machines: () => [], theme: () => ({ blocked: "urgent-color", working: "high-color" }), exec: async () => ok({ items }),
-  });
-  h.view.refresh(h.cx); await h.settle();
-  assert.deepEqual(plain(h.view.items.map(item => item.id)), ["urgent-new", "urgent-old", "high", "normal", "low", "done"]);
-  const tree = h.view.render();
-  assert.equal(textOf(find(tree, "todo-priority-local-urgent-new")), "P0");
-  assert.equal(find(tree, "todo-priority-local-urgent-new").styles.text_color[0], "urgent-color");
-  assert.ok(Object.hasOwn(find(tree, "todo-local-high").styles, "border_l"));
-  assert.ok(!Object.hasOwn(find(tree, "todo-local-done").styles, "border_l"));
-});
-
-test("To-do priority controls target the source machine and allow returning to automatic priority", () => {
-  const h = harness("todos", { settings: () => ({ language: "ko" }) });
-  h.view.items = [{ id: "one", text: "keep instruction", source: "me", priority: 2, priority_auto: true, on: "remote", created: 1 }];
-  h.view.open = "remote-one";
-  const changes = [];
-  h.view.change = (_cx, args, on) => changes.push(plain({ args, on }));
-  const tree = h.view.render();
-  find(tree, "todo-priority-remote-one").events.on_click({}, h.cx);
-  find(tree, "todo-priority-remote-one-0").events.on_click({}, h.cx);
-  find(tree, "todo-priority-remote-one-auto").events.on_click({}, h.cx);
-  assert.deepEqual(changes, [
-    { args: ["priority", "one", "1"], on: "remote" },
-    { args: ["priority", "one", "0"], on: "remote" },
-    { args: ["priority", "one", "auto"], on: "remote" },
-  ]);
-  assert.ok(textOf(tree).includes("긴급"));
-  assert.equal(h.view.items[0].text, "keep instruction");
-});
-
-test("a failed priority update reports the remote error and preserves the displayed task", async () => {
-  const notifications = [];
-  const h = harness("todos", { settings: () => ({ language: "ko" }), machines: () => [], notify: value => notifications.push(value) });
-  h.view.items = [{ id: "one", text: "keep", priority: 2, created: 1 }];
-  h.view.nv = async () => ({ code: 1, stdout: "", stderr: "update nv on remote" });
-  h.view.refresh = () => {};
-  h.view.change(h.cx, ["priority", "one", "0"], "remote"); await h.settle();
-  assert.equal(h.view.items[0].priority, 2);
-  assert.deepEqual(plain(notifications), [{ title: "할 일을 변경하지 못했습니다", body: "update nv on remote", level: "error" }]);
+test("tool hotkeys are declared and shipped layouts no longer contain the retired floating list", () => {
+  const read = path => JSON.parse(readFileSync(new URL(path, import.meta.url), "utf8"));
+  const bindings = read("../keys.json");
+  assert.equal(bindings.global["ctrl-shift-h"], "mod.open:nv-code");
+  assert.equal(bindings.global["ctrl-shift-k"], "mod.open:nv-shortcuts");
+  for (const name of ["neon-violet", "all-agents"]) assert.ok(!JSON.stringify(read(`../layouts/${name}.json`)).includes('"todos"'));
 });
 
 function editor(overrides) {
@@ -519,39 +394,29 @@ test("post completion clears only its own unchanged draft after PR navigation", 
   h.view.pick(2, h.cx); await h.settle(); assert.equal(h.view.comment, "new draft B");
 });
 
-test("remote Unix Browser uses the target path and the original pane", async () => {
+test("Browser opens a local graphical view without requiring nv on a remote machine", async () => {
   const requests = [];
   const h = harness("nv-new-menu", {
     props: () => ({ source: { on: "remote", pane: "remote/p", space: "remote/s", cwd: "/repo" } }),
-    window: () => ({ platform: "windows" }),
-    exec: async (command, args, options) => { requests.push({ command, args, options }); return ok("/home/other/.config/herdr-app/bin/nv"); },
+    exec: async (...args) => { requests.push(args); throw new Error("no remote binary"); },
   });
   h.view.browser(h.cx); await h.settle();
-  assert.equal(requests[0].options.on, "remote");
-  assert.deepEqual(h.calls[0].args.argv, ["/home/other/.config/herdr-app/bin/nv", "browse"]);
-  assert.equal(h.calls[0].args.pane, "remote/p");
+  assert.equal(requests.length, 0);
+  assert.equal(h.overlays[0].mod, "nv-browser");
 });
 
-test("remote Windows Browser resolves nv.exe with PowerShell on that machine", async () => {
-  const requests = [];
-  const h = harness("nv-new-menu", {
-    props: () => ({ source: { on: "windows", pane: "windows/p" } }),
-    exec: async (command, _args, options) => {
-      requests.push({ command, options });
-      if (command === "sh") throw new Error("cannot start sh: program not found");
-      return ok("C:\\Users\\remote\\.config\\herdr-app\\bin\\nv.exe");
-    },
+test("native Windows keeps the existing text-browser launcher", () => {
+  const h = harness("nv-new-menu", { window: () => ({ platform: "windows" }) });
+  h.view.browser();
+  assert.deepEqual(h.calls[0].args.argv, ["/local/herdr-app/bin/nv.exe", "browse"]);
+});
+
+test("the Chromium program is not duplicated among coding agents", async () => {
+  const h = harness("nv-new-menu", { checking: () => false,
+    knownAgents: async () => [{ key: "herdr-web-browser", installed: true }, { key: "claude", installed: true }],
   });
-  h.view.browser(h.cx); await h.settle();
-  assert.deepEqual(requests.map(r => [r.command, r.options.on]), [["sh", "windows"], ["powershell", "windows"]]);
-  assert.deepEqual(h.calls[0].args.argv, ["C:\\Users\\remote\\.config\\herdr-app\\bin\\nv.exe", "browse"]);
-});
-
-test("failed remote Browser lookup never falls back to a local launch", async () => {
-  const h = harness("nv-new-menu", { props: () => ({ source: { on: "remote", pane: "remote/p" } }),
-    exec: async () => ({ code: 1, stdout: "", stderr: "missing" }) });
-  h.view.browser(h.cx); await h.settle();
-  assert.equal(h.calls.length, 0); assert.match(h.view.browserError, /not installed/);
+  await h.settle();
+  assert.deepEqual(plain(h.view.agents.map(a => a.key)), ["claude"]);
 });
 
 test("folder navigation cancels old recursive watches without restarting them", async () => {
@@ -574,4 +439,41 @@ test("folder navigation cancels old recursive watches without restarting them", 
   assert.equal(cancelled, 70);
   cwd = null; present = false; h.view.refresh(h.cx); await h.settle();
   assert.equal(active.size, 0); assert.equal(cancelled, 71);
+});
+
+for (const file of ["/repo/.env", "/repo/.env.local", "/repo/.env.production.local", "/repo/config.env"]) {
+  test(`dotenv file ${file} uses shell highlighting`, () => {
+    const h = harness("editor", { props: () => ({ file }) });
+    h.view.build('export API_URL="http://localhost:3000"\n# local config\nENABLED=true', h.cx);
+    assert.equal(h.view.state.options.language, "sh");
+  });
+}
+
+for (const [grammar, body, kind] of [["md", "# Unsaved title\n**bold**", "markdown"], ["html", "<h1>Unsaved title</h1>", "html"]]) {
+  test(`code popup ${grammar} preview renders the current unsaved draft and can return to source`, () => {
+    const h = harness("nv-code");
+    h.view.selectGrammar(grammar, h.cx);
+    h.view.state.set_value(body);
+    const state = h.view.state;
+    find(h.view.render(), "code-preview").events.on_click({}, h.cx);
+    assert.equal(h.view.preview, true);
+    const preview = find(h.view.render(), "code-document-preview").items[0];
+    assert.equal(preview.previewKind, kind);
+    assert.equal(preview.value, body);
+    find(h.view.render(), "code-preview").events.on_click({}, h.cx);
+    assert.equal(h.view.state, state);
+    assert.equal(h.view.state.value(), body);
+  });
+}
+
+test("graphical Browser terminal runs locally even from a remote space", async () => {
+  const commands = [];
+  const h = harness("nv-browser", {
+    exec: async (command, args, options) => { commands.push({ command, args, options }); return ok(command === "hc" ? { address: "t9" } : "herdr-web-browser 1.3.2"); },
+  });
+  h.view.open(h.cx); await h.settle();
+  const launch = commands.find(c => c.command === "hc");
+  assert.equal(launch.args.includes("--on"), false);
+  assert.equal(launch.args.at(-2), "/local/herdr-app/bin/nv-browser-view");
+  assert.equal(h.overlays[0].layout.children[1].content.terminal, "t9");
 });

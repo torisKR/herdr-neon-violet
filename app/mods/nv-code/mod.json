@@ -1,0 +1,6 @@
+{
+  "place": "none",
+  "title": "Code highlighting",
+  "focusable": true,
+  "overlay": { "kind": "window", "width": 940, "height": 620 }
+}

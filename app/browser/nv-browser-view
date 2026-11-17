@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+set -eu
+here=$(cd "$(dirname "$0")" && pwd)
+owner="${HC_TERMINAL_ID:?Run this view through Herdr Core}"
+"$here/herdr-web-browser" --owner "$owner" open "${1:-about:blank}" >/dev/null
+exec "$here/herdr-web-browser" --owner "$owner" view

@@ -1,0 +1,27 @@
+{
+  "schemes": [
+    {
+      "name": "Neon Violet",
+      "background": "#130A1F",
+      "foreground": "#ECE4FF",
+      "cursorColor": "#C33CF0",
+      "selectionBackground": "#3B1D63",
+      "black": "#1A0E2C",
+      "red": "#FF1F6E",
+      "green": "#39E6A2",
+      "yellow": "#FFE600",
+      "blue": "#8B7BFF",
+      "purple": "#C33CF0",
+      "cyan": "#1FD1C9",
+      "white": "#D9CFF0",
+      "brightBlack": "#5E4A80",
+      "brightRed": "#FF5C95",
+      "brightGreen": "#6FF5BF",
+      "brightYellow": "#FFF36B",
+      "brightBlue": "#AEA3FF",
+      "brightPurple": "#DC7BFF",
+      "brightCyan": "#62E8E1",
+      "brightWhite": "#FFFFFF"
+    }
+  ]
+}

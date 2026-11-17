@@ -1,0 +1,23 @@
+# Ghostty theme — copy to ~/.config/ghostty/themes/neon-violet
+# then add `theme = neon-violet` to ~/.config/ghostty/config
+background = #130a1f
+foreground = #ece4ff
+cursor-color = #c33cf0
+selection-background = #3b1d63
+selection-foreground = #ffffff
+palette = 0=#1a0e2c
+palette = 1=#ff1f6e
+palette = 2=#39e6a2
+palette = 3=#ffe600
+palette = 4=#8b7bff
+palette = 5=#c33cf0
+palette = 6=#1fd1c9
+palette = 7=#d9cff0
+palette = 8=#5e4a80
+palette = 9=#ff5c95
+palette = 10=#6ff5bf
+palette = 11=#fff36b
+palette = 12=#aea3ff
+palette = 13=#dc7bff
+palette = 14=#62e8e1
+palette = 15=#ffffff

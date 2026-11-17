@@ -3,3 +3,5 @@ node_modules/
 *.log
 plugin/target/
 plugin/bin/
+app/mods/*/gpui-kit.d.ts
+app/mods/*/jsconfig.json

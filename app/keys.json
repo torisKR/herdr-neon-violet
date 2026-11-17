@@ -7,9 +7,16 @@
       "args": {
         "direction": "right",
         "argv": [
-          "node",
-          "{{BROWSE}}"
+          "{{NV}}",
+          "browse"
         ]
+      }
+    },
+    "ctrl-shift-g": {
+      "command": "pane.split",
+      "args": {
+        "direction": "right",
+        "mod": "prs"
       }
     }
   },

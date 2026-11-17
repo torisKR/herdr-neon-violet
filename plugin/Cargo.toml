@@ -1,0 +1,21 @@
+[package]
+name = "nv"
+version = "0.2.0"
+edition = "2021"
+description = "neon-violet tools for herdr: ALL agents board, devices, text browser, file explorer and pull requests"
+license = "MIT"
+repository = "https://github.com/torisKR/herdr-neon-violet"
+
+[dependencies]
+crossterm = "0.28"
+serde_json = "1"
+unicode-width = "0.2"
+ureq = { version = "2", default-features = false, features = ["tls"] }
+url = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

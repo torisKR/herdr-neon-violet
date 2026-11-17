@@ -46,7 +46,7 @@ export function normalizeHistory(data) {
       row.input += input; row.output += output; row.cache += cache;
       const cost = number(model.cost);
       // An unpriced model must not look like free usage.
-      if (cost === null || cost === 0 && input + output + cache > 0) row.costKnown = false;
+      if (model.missingPricing === true || cost === null || cost === 0 && input + output + cache > 0) row.costKnown = false;
       else row.costUsd += cost;
     }
   }

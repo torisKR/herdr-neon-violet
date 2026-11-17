@@ -25,6 +25,19 @@ test('unpriced usage remains counted and never appears as zero-cost usage', () =
   assert.equal(normalizeHistory({ daily: [{ agent: 'all', totalTokens: 20 }] }).available, false);
 });
 
+test('partially priced models with a positive stored subtotal remain unknown across days', () => {
+  const known = { modelName: 'mixed', inputTokens: 100, cost: 0.2 };
+  const partial = { modelName: 'mixed', inputTokens: 200, cost: 0.1, missingPricing: true };
+  const data = normalizeHistory({ daily: [
+    { agent: 'claude', totalTokens: 100, modelBreakdowns: [known] },
+    { agent: 'claude', totalTokens: 200, modelBreakdowns: [partial] },
+  ] });
+  assert.equal(data.providers[0].total, 300);
+  assert.equal(data.providers[0].models[0].input, 300);
+  assert.equal(data.providers[0].models[0].costUsd, null);
+  assert.equal(data.providers[0].costUsd, null);
+});
+
 test('quota snapshots preserve true window durations, unavailable data and backend restrictions', () => {
   const data = normalizeCodex({ ordinaryUsageAllowed: false, rateLimits: { primary: { usedPercent: 34, windowDurationMins: 10080, resetsAt: 1795514578 } } });
   assert.equal(data.windows[0].remaining, 66);

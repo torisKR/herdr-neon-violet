@@ -39,6 +39,7 @@ fn list_assigns_priorities_to_legacy_items_without_rewriting_the_store() {
         ("긴급 서버 장애 복구", 0), ("URGENT restore service", 0), ("至急対応", 0), ("紧急处理", 0),
         ("결제 오류 해결", 1), ("fix broken scrolling", 1), ("重要な不具合", 1), ("修复错误", 1),
         ("새 화면 추가", 2), ("prefix and debugger catalog", 2),
+        ("review findings using P0/P1/P2 labels", 2), ("[P0] restore service", 0),
         ("나중에 색상 조정", 3), ("optional decoration", 3), ("任意の装飾", 3), ("以后添加", 3),
         ("optional but critical data loss", 0),
     ];

@@ -202,7 +202,8 @@ fn inferred_priority(item: &Value) -> u64 {
             text.contains(needle)
         }
     };
-    if ["긴급", "최우선", "장애", "데이터 유실", "데이터 손실", "urgent", "critical", "asap", "p0", "production down", "data loss", "緊急", "至急", "障害", "紧急", "故障", "数据丢失"].iter().any(|word| contains(word)) {
+    if text.starts_with("p0 ") || text.starts_with("[p0]")
+        || ["긴급", "최우선", "장애", "데이터 유실", "데이터 손실", "urgent", "critical", "asap", "production down", "data loss", "緊急", "至急", "障害", "紧急", "故障", "数据丢失"].iter().any(|word| contains(word)) {
         0
     } else if ["중요", "우선 처리", "버그", "오류", "실패", "안됨", "안 돼", "보안", "결제", "로그인", "bug", "fix", "broken", "error", "security", "payment", "重要", "不具合", "エラー", "错误", "修复", "安全"].iter().any(|word| contains(word)) {
         1

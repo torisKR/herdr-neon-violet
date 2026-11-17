@@ -229,7 +229,7 @@ fn hook(kind: &str, args: &[String]) -> Result<(), String> {
             let first = first_line(prompt, 160);
             // Only what a person typed: no slash commands, no system-generated turns
             // (<task-notification>, <scheduled-task>), no instructions another tool sent to a worker.
-            let automated = first.starts_with(['<', '─', '━', '=', '[', '{'])
+            let automated = first.starts_with(['<', '─', '━', '=', '[', '{', '→', '▶', '>'])
                 || ["You are ", "Below is ", "From: ", "Summarize ", "Please summarize "].iter().any(|p| first.starts_with(p))
                 || prompt.contains("dispatched worker")
                 || prompt.chars().count() > 3000;

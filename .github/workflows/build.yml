@@ -1,0 +1,62 @@
+name: build
+
+# Builds the nv binary for every platform. Pull requests get the binaries as
+# artifacts; a tag (v*) attaches them to a GitHub release, which is where
+# plugin/fetch-bin.* downloads them from.
+on:
+  pull_request:
+    paths:
+      - "plugin/**"
+      - ".github/workflows/build.yml"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            ext: ".exe"
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            ext: ""
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            ext: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            ext: ""
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            ext: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add target
+        run: rustup target add ${{ matrix.target }}
+      - name: Build
+        working-directory: plugin
+        run: cargo build --release --target ${{ matrix.target }}
+      - name: Name the binary
+        shell: bash
+        run: cp "plugin/target/${{ matrix.target }}/release/nv${{ matrix.ext }}" "nv-${{ matrix.target }}${{ matrix.ext }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nv-${{ matrix.target }}
+          path: nv-${{ matrix.target }}${{ matrix.ext }}
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || gh release create "${{ github.ref_name }}" --generate-notes
+          gh release upload "${{ github.ref_name }}" "nv-${{ matrix.target }}${{ matrix.ext }}" --clobber

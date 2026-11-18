@@ -21,6 +21,7 @@ const ACTIONS = {
   "layout.switch:all-agents": ["All agents", "全エージェント", "全部智能体", "전체 에이전트"],
   "mod.open:nv-toggle-agents": ["All agents (press again: back)", "全エージェント（もう一度で戻る）", "全部智能体（再按返回）", "전체 에이전트 (다시 누르면 돌아가기)"],
   "mod.open:nv-toggle-prs": ["Pull requests (press again: close)", "プルリクエスト（もう一度で閉じる）", "拉取请求（再按关闭）", "풀 리퀘스트 (다시 누르면 닫기)"],
+  "mod.open:nv-paste": ["Paste (screenshots go to agents as images)", "貼り付け（スクリーンショットは画像として）", "粘贴（截图作为图片）", "붙여넣기 (캡처는 이미지로)"],
   "mod.open:nv-browser": ["Browser (press again: close)", "ブラウザー（もう一度で閉じる）", "浏览器（再按关闭）", "브라우저 (다시 누르면 닫기)"],
   "mod.open:devices": ["Devices", "デバイス", "设备", "기기 목록"],
   "space.new": ["New space", "スペースを作成", "新建空间", "새 공간"],

@@ -15,6 +15,9 @@
     "ctrl-i": "all-agents.idle",
     "ctrl-b": "all-agents.blocked"
   },
+  "terminal": {
+    "ctrl-v": "mod.open:nv-paste"
+  },
   "mod:editor": {
     "ctrl-s": "editor.save",
     "ctrl-shift-v": "editor.preview"

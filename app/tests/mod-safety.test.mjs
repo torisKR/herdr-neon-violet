@@ -126,7 +126,7 @@ function harness(name, overrides = {}, storage = new Map()) {
     focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: "t", cwd: "/repo" }),
     home: () => "/home/test", window: () => ({ platform: "macos" }), appHome: () => "/local/herdr-app",
     shared: () => null, setShared() {}, layout: () => null, keys: () => [],
-    agents: () => [], machines: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
+    agents: () => [], terminals: () => [], machines: () => [], layouts: () => ["main", "neon-violet", "all-agents"], setAgentOrder() {},
     nextCommand: () => new Promise(() => {}),
     run: (name, args) => calls.push({ name, args: plain(args) }),
     openOverlay: spec => overlays.push(plain(spec)), closeOverlay() {},
@@ -607,11 +607,41 @@ test("Pull requests shortcut closes this tab's PR pane, else opens one beside th
   assert.deepEqual(close.calls, [{ name: "pane.close", args: { pane: "remote/p2" } }]);
 });
 
+for (const [platform, focusedTerminal, expected, app = "claude-code"] of [
+  ["windows", "t3", ["terminal.paste_image", "powershell", "terminal.paste"]],
+  ["windows", "macbook/t3", ["terminal.paste_image"]],
+  ["windows", "t9", ["terminal.paste_image"], "codex"],
+  ["macos", "t3", ["osascript", "terminal.paste"]],
+  ["linux", "t3", ["terminal.paste_image"]],
+]) {
+  test(`Ctrl/Cmd+V on ${platform} for ${app} in ${focusedTerminal} turns a screenshot into one pasted image`, async () => {
+    const steps = [], closed = [];
+    const h = harness("nv-paste", { checking: () => false, window: () => ({ platform }), props: () => ({ overlay: "o" }),
+      agents: () => [{ address: focusedTerminal, app }], terminals: () => [],
+      focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: focusedTerminal, cwd: "/repo" }),
+      closeOverlay: id => closed.push(id),
+      run: name => steps.push(name),
+      exec: async command => { steps.push(command); return ok("image\r\n"); } });
+    await h.settle();
+    assert.deepEqual(steps, expected);
+    assert.deepEqual(closed, ["o"]);
+  });
+}
+
+test("on Windows a text clipboard is pasted once, without a second file paste", async () => {
+  const steps = [];
+  const h = harness("nv-paste", { checking: () => false, window: () => ({ platform: "windows" }), props: () => ({ overlay: "o" }),
+    run: name => steps.push(name), exec: async () => ok("text") });
+  await h.settle();
+  assert.deepEqual(steps, ["terminal.paste_image"]);
+});
+
 test("the pack's shortcuts toggle: ALL agents, Pull requests and Browser", () => {
   const keys = JSON.parse(readFileSync(new URL("../keys.json", import.meta.url), "utf8"));
   assert.equal(keys.global["ctrl-shift-a"], "mod.open:nv-toggle-agents");
   assert.equal(keys.global["ctrl-shift-g"], "mod.open:nv-toggle-prs");
   assert.equal(keys.global["ctrl-shift-u"], "mod.open:nv-browser");
+  assert.equal(keys.terminal["ctrl-v"], "mod.open:nv-paste");
 });
 
 test("the Chromium program is not duplicated among coding agents", async () => {

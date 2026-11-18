@@ -11,6 +11,7 @@ Un pack d'espace de travail pour [Herdr](https://herdr.dev), l'application de bu
 | Fonction | Ouvrir | Ce qu'elle fait |
 | --- | --- | --- |
 | **Auto app** | menu + → Auto app · `Ctrl/Cmd+Shift+Y` | Donnez un dossier et une idée. Une équipe d'agents recherche, planifie, dessine, développe, teste sur un appareil, prépare la fiche du store et publie avec fastlane. |
+| **Aujourd’hui** | menu + → Today · `Ctrl/Cmd+Shift+J` | Ce qu’il faut reprendre maintenant : un projet principal et un projet de maintenance, chacun avec la prochaine action, la raison de l’arrêt, où reprendre et si la dernière vérification tient encore. Détails : [Today](docs/TODAY.md). |
 | **Navigateur avec Inspect** | `Ctrl/Cmd+Shift+U` | Un vrai Chrome/Edge dans Herdr. Les agents pilotent leurs propres onglets ; vous cliquez sur un élément, dites quoi changer et l'envoyez à un agent. |
 | **ALL agents** | `Ctrl/Cmd+Shift+A` | Le terminal de chaque agent en cours sur un seul écran. Appuyez à nouveau pour revenir. |
 | **Pull requests** | `Ctrl/Cmd+Shift+G` | Lire, commenter et fusionner les pull requests du dépôt à côté de votre terminal. |

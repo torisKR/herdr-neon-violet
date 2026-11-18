@@ -24,21 +24,28 @@ export default class Browser extends View {
    *  terminal by `nv-web view`, with the address bar above and Inspect beside it. */
   async openWeb() {
     const tool = `${appHome()}/bin/nv-web.mjs`;
-    if (props()?.url) await exec("node", [tool, "open", props().url, "--owner", "person", "--json"], { timeout: 30000 });
+    // Start Chrome and the person's tab without moving it (the view itself never starts a browser).
+    const ready = await exec("node", [tool, ...(props()?.url ? ["open", props().url] : ["ensure"]), "--owner", "person", "--json"], { timeout: 30000 });
+    if (ready.code !== 0) throw new Error(ready.stderr || ready.stdout);
     const r = await exec("hc", ["run", "--bg", "--json", "--no-parent", "--no-notify", "--name", "browser-view", "--cwd", home(), "--", "node", tool, "view", "--owner", "person"], { timeout: 20000 });
     if (r.code !== 0) throw new Error(r.stderr || r.stdout);
     const terminal = JSON.parse(r.stdout).address;
     if (typeof terminal !== "string" || !/^t[0-9a-z]+$/.test(terminal)) throw new Error("Herdr Core did not return a local browser terminal");
-    setShared(`nv.web.view.${terminal}`, { owner: "person", mode: "use" });
-    const id = openOverlay({ kind: "window", key: "nv-web", width: 1280, height: 820,
-      layout: { type: "column", children: [
-        { type: "block", size: { px: 36 }, content: { mod: "nv-web", props: { part: "bar", terminal } } },
-        { type: "row", children: [
-          { type: "block", content: { terminal } },
-          { type: "block", size: { px: 300 }, content: { mod: "nv-web", props: { part: "side", terminal } } },
-        ] },
-      ] } });
-    setShared(OPEN.web, id);
+    try {
+      setShared(`nv.web.view.${terminal}`, { owner: "person", mode: "use" });
+      const id = openOverlay({ kind: "window", key: "nv-web", width: 1280, height: 820,
+        layout: { type: "column", children: [
+          { type: "block", size: { px: 36 }, content: { mod: "nv-web", props: { part: "bar", terminal } } },
+          { type: "row", children: [
+            { type: "block", content: { terminal } },
+            { type: "block", size: { px: 300 }, content: { mod: "nv-web", props: { part: "side", terminal } } },
+          ] },
+        ] } });
+      setShared(OPEN.web, id);
+    } catch (error) {
+      await exec("hc", ["kill", terminal]).catch(() => {});
+      throw error;
+    }
     closeOverlay(props().overlay);
   }
 

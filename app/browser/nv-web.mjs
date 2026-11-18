@@ -19,7 +19,7 @@
 // --owner defaults to $HC_TERMINAL_ID (the calling agent), else "person". --json prints JSON.
 // No dependencies: Node 22+ (global fetch and WebSocket).
 import { spawn } from "node:child_process";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +38,7 @@ export function parseArgs(argv, env = process.env) {
   const rest = [];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (a === "--") { rest.push(...argv.slice(i + 1)); break; }   // the rest is text, even "--json"
     const bool = { "--json": "json", "--submit": "submit", "--clear": "clear", "--errors": "errors", "--failed": "failed", "--reset": "reset" }[a];
     if (bool) flags[bool] = true;
     else if (["--owner", "--x", "--y", "--dx", "--limit"].includes(a)) {
@@ -208,18 +209,33 @@ async function version(port) {
   return r.json();
 }
 
-/** The DevTools port of our browser, starting it when it isn't running. */
+/** Runs fn while holding a lock file, so agents starting at once don't race (stale after 30 s). */
+async function withLock(name, fn) {
+  mkdirSync(ROOT, { recursive: true });
+  const file = join(ROOT, `${name}.lock`);
+  for (let i = 0; ; i++) {
+    try { closeSync(openSync(file, "wx")); break; } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      try { if (Date.now() - statSync(file).mtimeMs > 30000) { unlinkSync(file); continue; } } catch { continue; }
+      if (i > 400) throw new Error(`${name} is busy (remove ${file} if nothing is running)`);
+      await new Promise(r => setTimeout(r, 75));
+    }
+  }
+  try { return await fn(); } finally { try { unlinkSync(file); } catch { /* already gone */ } }
+}
+
+/** The DevTools port of our browser, starting it when it isn't running. Call under the "state" lock to start. */
 async function ensureBrowser({ start = true } = {}) {
   const state = readState();
   if (state.port) {
-    try { await version(state.port); startWatcher(); return state; } catch { /* gone: start again */ }
+    try { await version(state.port); await startWatcher(); return state; } catch { /* gone: start again */ }
   }
   if (!start) return null;
   const exe = browserCandidates().find(p => existsSync(p));
   if (!exe) throw new Error("Chrome or Edge was not found. Install Google Chrome, or set NV_BROWSER to a Chromium browser.");
   mkdirSync(PROFILE, { recursive: true });
   const portFile = join(PROFILE, "DevToolsActivePort");
-  try { writeFileSync(portFile, ""); } catch { /* the browser rewrites it */ }
+  // A port file left by a dead browser fails the version check below until the new one is written.
   const child = spawn(exe, [
     `--user-data-dir=${PROFILE}`, "--remote-debugging-port=0",
     "--no-first-run", "--no-default-browser-check",
@@ -237,7 +253,7 @@ async function ensureBrowser({ start = true } = {}) {
         await version(port);
         const next = { port, exe, pid: child.pid, owners: {} };
         writeState(next);
-        startWatcher();
+        await startWatcher();
         return next;
       } catch { /* not ready yet */ }
     }
@@ -252,13 +268,25 @@ function alive(pid) {
 }
 
 /** Keeps one background watcher that records every tab's console, errors and requests. */
-function startWatcher() {
-  const pid = Number(existsSync(WATCHER) ? readFileSync(WATCHER, "utf8") : 0);
-  if (pid > 0 && alive(pid)) return;
-  const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "__watch"], { detached: true, stdio: "ignore", windowsHide: true });
-  child.unref();
-  mkdirSync(ROOT, { recursive: true });
-  writeFileSync(WATCHER, String(child.pid));
+async function startWatcher() {
+  const running = () => { const pid = Number(existsSync(WATCHER) ? readFileSync(WATCHER, "utf8") : 0); return pid > 0 && alive(pid); };
+  if (running()) return;
+  await withLock("watcher", async () => {
+    if (running()) return;
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "__watch"], { detached: true, stdio: "ignore", windowsHide: true });
+    child.unref();
+    writeFileSync(WATCHER, String(child.pid));
+  });
+}
+
+/** Drops picks and logs older than a week. */
+function prune(dir, days = 7) {
+  try {
+    for (const name of readdirSync(dir)) {
+      const file = join(dir, name);
+      if (Date.now() - statSync(file).mtimeMs > days * 86400000) unlinkSync(file);
+    }
+  } catch { /* nothing there yet */ }
 }
 
 const MAX_LINES = 1500, KEEP_LINES = 1000;
@@ -280,6 +308,7 @@ const valueText = a => a.value !== undefined ? (typeof a.value === "string" ? a.
 async function watch() {
   const state = readState();
   if (!state.port) return;
+  prune(LOGS);
   const v = await version(state.port);
   const ws = new WebSocket(v.webSocketDebuggerUrl);
   await new Promise((ok, fail) => { ws.onopen = ok; ws.onerror = fail; });
@@ -355,10 +384,20 @@ async function targets(port) {
   return (await r.json()).filter(t => t.type === "page");
 }
 
-/** The owner's tab, made (and remembered) when it has none. */
+/** The owner's tab, made (and remembered) when it has none. Without create, null when there is none. */
 async function ownerTarget(owner, { create = true, url = "about:blank" } = {}) {
-  const state = await ensureBrowser({ start: create });
-  if (!state) return null;
+  if (!create) {
+    const state = await ensureBrowser({ start: false });
+    if (!state) return null;
+    const target = (await targets(state.port)).find(t => t.id === state.owners?.[owner]);
+    return target ? { ...target, port: state.port } : null;
+  }
+  // Starting the browser, choosing a tab and saving the owners map happen under one lock.
+  return withLock("state", () => claimTarget(owner, url));
+}
+
+async function claimTarget(owner, url) {
+  const state = await ensureBrowser({ start: true });
   const pages = await targets(state.port);
   let target = pages.find(t => t.id === state.owners?.[owner]);
   if (!target && owner === "person" && pages.length) {
@@ -366,7 +405,7 @@ async function ownerTarget(owner, { create = true, url = "about:blank" } = {}) {
     const claimed = new Set(Object.values(state.owners ?? {}));
     target = pages.find(t => !claimed.has(t.id) && t.url === "about:blank");
   }
-  if (!target && create) {
+  if (!target) {
     // Each owner gets its own window, so its tab is the shown one there: Chrome drops input
     // (and throttles pages) in background tabs, and agents work side by side.
     const v = await version(state.port);
@@ -544,14 +583,24 @@ async function view(firstOwner) {
   out.write(`${ESC}[?25l${ESC}[2J${ESC}[?1000h${ESC}[?1002h${ESC}[?1006h${ESC}[?1016h${ESC}[14t${ESC}[?1016$p`);
   out.on("resize", () => { term.cols = out.columns; term.rows = out.rows; out.write(`${ESC}[2J${ESC}[14t`); lastKey = ""; });
 
-  /** A DevTools session on the owner's tab, kept open between frames. */
-  const attach = async owner => {
-    if (cur && cur.owner === owner && !cur.closed) return cur;
-    try { cur?.s.close(); } catch { /* already gone */ }
-    const target = await ownerTarget(owner);
-    const s = await session(target);
-    cur = { owner, s, target, closed: false };
-    return cur;
+  /** A DevTools session on the owner's tab, kept open between frames. It never starts the browser or
+   *  makes a tab: closing Chrome, `nv-web stop` or `close` stay done until someone opens a page. */
+  let attaching = null;
+  const attach = owner => {
+    if (cur && cur.owner === owner && !cur.closed) return Promise.resolve(cur);
+    if (attaching?.owner === owner) return attaching.promise;
+    const promise = (async () => {
+      try { cur?.s.close(); } catch { /* already gone */ }
+      cur = null;
+      const target = await ownerTarget(owner, { create: false });
+      if (!target) throw new Error(`no tab for ${owner === "person" ? "you" : owner} — type an address above, or: nv-web --owner ${owner} open <url>`);
+      const s = await session(target);
+      cur = { owner, s, target, closed: false };
+      return cur;
+    })();
+    attaching = { owner, promise };
+    promise.finally(() => { if (attaching?.promise === promise) attaching = null; }).catch(() => {});
+    return promise;
   };
   const act = async fn => {
     try { const c = await attach(ctl().owner); await fn(c.s); } catch (error) { if (cur) cur.closed = true; status(`! ${error.message ?? error}`); }
@@ -575,6 +624,7 @@ async function view(firstOwner) {
             const found = await evaluate(s, `${INSPECT_JS}(${p.x}, ${p.y}, null)`);
             const shot = join(ROOT, "picks", `${Date.now()}.png`);
             mkdirSync(dirname(shot), { recursive: true });
+            prune(dirname(shot));
             writeFileSync(shot, Buffer.from((await s.send("Page.captureScreenshot", { format: "png" })).data, "base64"));
             writeJson(viewFile(id, "picked"), { at: Date.now(), owner: ctl().owner, point: p, shot, element: found });
             writeJson(viewFile(id), { ...ctl(), mode: "use" });
@@ -721,6 +771,7 @@ export async function run({ command, args, owner, flags }) {
     }
     case "__watch": await watch(); return { watched: true };
     case "view": await view(owner); return {};
+    case "ensure": { const t = await ownerTarget(owner); return { owner, id: t.id, url: t.url }; }
     case "view-set": {
       need(1, "the view's terminal id");
       const file = viewFile(args[0]);

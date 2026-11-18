@@ -57,10 +57,13 @@ if (Test-Path $app) {
   Copy-Item $nv (Join-Path $app 'bin\nv.exe') -Force
   Copy-Item (Join-Path $here 'app\browser\nv-preview.mjs') (Join-Path $app 'bin\nv-preview.mjs') -Force
   Copy-Item (Join-Path $here 'app\browser\nv-web.mjs') (Join-Path $app 'bin\nv-web.mjs') -Force
+  Copy-Item (Join-Path $here 'app\pipeline\nv-pipeline.mjs') (Join-Path $app 'bin\nv-pipeline.mjs') -Force
+  New-Item -ItemType Directory -Force (Join-Path $app 'pipeline\stages') | Out-Null
+  Copy-Item (Join-Path $here 'app\pipeline\stages\*.md') (Join-Path $app 'pipeline\stages') -Force
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs','nv-paste') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs','nv-paste','nv-pipeline') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Warning 'Browser (Ctrl+Shift+U) needs Node.js 22+ and Chrome or Edge.' }
   # Agent skill: how Claude Code / Codex drive Herdr, hc and the browser (only where those agents are set up).

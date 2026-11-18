@@ -6,7 +6,14 @@
     "ctrl-shift-d": "mod.open:devices",
     "ctrl-shift-u": "mod.open:nv-browser",
     "ctrl-shift-g": "mod.open:nv-toggle-prs",
-    "ctrl-shift-m": "mod.open:devices"
+    "ctrl-shift-m": "mod.open:devices",
+    "ctrl-shift-y": {
+      "command": "tab.new",
+      "args": {
+        "name": "App pipeline",
+        "mod": "nv-pipeline"
+      }
+    }
   },
   "layout:all-agents": {
     "ctrl-a": "all-agents.all",

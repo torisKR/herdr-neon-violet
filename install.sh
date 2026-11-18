@@ -46,10 +46,12 @@ if [ -d "$app" ]; then
   cp "$nv" "$app/bin/nv"
   cp "$here/app/browser/nv-preview.mjs" "$app/bin/nv-preview.mjs"
   cp "$here/app/browser/nv-web.mjs" "$app/bin/nv-web.mjs"
+  cp "$here/app/pipeline/nv-pipeline.mjs" "$app/bin/nv-pipeline.mjs"
+  mkdir -p "$app/pipeline/stages" && cp "$here"/app/pipeline/stages/*.md "$app/pipeline/stages/"
   cp "$here/app/usage/nv-usage.mjs" "$app/bin/nv-usage.mjs"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
-  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$here/app/mods/nv-paste" "$app/mods/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$here/app/mods/nv-paste" "$here/app/mods/nv-pipeline" "$app/mods/"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
   # Browser setup is optional; a missing toolchain/download must not interrupt the pack migration.
   if command -v cargo >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then

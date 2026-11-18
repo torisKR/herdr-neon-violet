@@ -47,6 +47,7 @@ if [ -d "$app" ]; then
   cp "$here/app/browser/nv-preview.mjs" "$app/bin/nv-preview.mjs"
   cp "$here/app/browser/nv-web.mjs" "$app/bin/nv-web.mjs"
   cp "$here/app/pipeline/nv-pipeline.mjs" "$app/bin/nv-pipeline.mjs"
+  cp "$here/app/pipeline/nv-graphics.mjs" "$app/bin/nv-graphics.mjs"
   mkdir -p "$app/pipeline/stages" && cp "$here"/app/pipeline/stages/*.md "$app/pipeline/stages/"
   cp "$here/app/usage/nv-usage.mjs" "$app/bin/nv-usage.mjs"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"

@@ -58,6 +58,7 @@ if (Test-Path $app) {
   Copy-Item (Join-Path $here 'app\browser\nv-preview.mjs') (Join-Path $app 'bin\nv-preview.mjs') -Force
   Copy-Item (Join-Path $here 'app\browser\nv-web.mjs') (Join-Path $app 'bin\nv-web.mjs') -Force
   Copy-Item (Join-Path $here 'app\pipeline\nv-pipeline.mjs') (Join-Path $app 'bin\nv-pipeline.mjs') -Force
+  Copy-Item (Join-Path $here 'app\pipeline\nv-graphics.mjs') (Join-Path $app 'bin\nv-graphics.mjs') -Force
   New-Item -ItemType Directory -Force (Join-Path $app 'pipeline\stages') | Out-Null
   Copy-Item (Join-Path $here 'app\pipeline\stages\*.md') (Join-Path $app 'pipeline\stages') -Force
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force

@@ -1123,6 +1123,142 @@ test("references typed or dropped on the Auto app form are passed to the pipelin
   assert.deepEqual(refs, ["https://play.google.com/store/apps/details?id=a.b", "https://github.com/x/y", "/Users/me/Desktop/shot1.png"]);
 });
 
+/** A board status with one app in the middle of its run: research done, design running with two workers, the rest waiting. */
+function runningBoard(patch = {}) {
+  const stages = ["research", "design", "assets", "build"].map(id => ({ id, role: id[0].toUpperCase() + id.slice(1), ko: id }));
+  const state = { id: "cat-cafe", name: "Cat Cafe", tag: "abc123", mode: "promote", status: "running", stage: "design", gate: null, choice: {}, options: {},
+    stages: { research: { status: "done", agent: "grok" }, assets: { status: "pending" }, build: { status: "pending" },
+      design: { status: "running", agent: "codex", terminal: "t7", round: 1, members: [
+        { id: "w1", part: "worker", agent: "codex", model: null, terminal: "t7", status: "running" },
+        { id: "w2", part: "worker", agent: "codex", model: "gpt-5.3-codex", terminal: "t8", status: "running" }] } } };
+  const app = { id: "cat-cafe", name: "Cat Cafe", dir: "/p/cat-cafe", state, feed: [], conducted: true, activity: { design: "working" }, live: { t7: "working", t8: "working" },
+    team: { research: { agent: "grok", model: null, count: 1, review: "none" }, design: { agent: "codex", model: null, count: 2, review: "none" },
+      assets: { agent: "codex", model: null, count: 1, review: "claude" }, build: { agent: "claude", model: "opus", count: 1, review: "codex" } }, ...patch };
+  return { key: { present: true, email: "ci@x.iam.gserviceaccount.com" }, stages, apps: [app] };
+}
+const CATALOG = { maxWorkers: 4, fallback: "claude",
+  agents: [{ name: "claude", bin: "claude", installed: true, models: ["opus", "sonnet"], model: true }, { name: "codex", bin: "codex", installed: true, models: [], model: true },
+    { name: "grok", bin: "grok", installed: false, models: [], model: true }],
+  team: { research: { agent: "claude", split: true, review: "none" }, design: { agent: "codex", split: true, review: "none" }, assets: { agent: "codex", split: true, review: "claude" }, build: { agent: "claude", split: false, review: "codex" } } };
+
+test("clicking an app that is running shows its board even while the new-app form is open", () => {
+  const status = runningBoard();
+  const { h } = board({ props: () => ({ create: true }) }, status);
+  h.view.data = status;
+  let tree = h.view.render();
+  assert.ok(find(tree, "new-form") && !find(tree, "team-canvas"), "Auto app opens on the form, which hides the board");
+  find(tree, "app-cat-cafe").events.on_click({}, h.cx);
+  tree = h.view.render();
+  assert.equal(h.view.form, null);
+  assert.ok(find(tree, "team-canvas") && find(tree, "stage-design") && !find(tree, "new-form"));
+});
+
+test("clicking a desk opens its agent's screen, and each member can be shown or kept as a tab", () => {
+  const status = runningBoard();
+  const { h } = board({}, status);
+  h.view.data = status;
+  let tree = h.view.render();
+  find(tree, "stage-design").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls.at(-1), { name: "terminal.peek", args: { terminal: "t7" } });
+  assert.equal(h.view.focus, "design");
+  tree = h.view.render();
+  assert.ok(find(tree, "member-worker-w1") && find(tree, "member-worker-w2"));
+  find(tree, "peek-worker-w2").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls.at(-1), { name: "terminal.peek", args: { terminal: "t8" } });
+  find(tree, "keep-worker-w2").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls.at(-1), { name: "terminal.keep", args: { terminal: "t8", place: "tab" } });
+  // A desk nobody is at only shows its details.
+  const before = h.calls.length;
+  find(tree, "stage-research").events.on_click({}, h.cx);
+  assert.equal(h.calls.length, before);
+  assert.equal(h.view.focus, "research");
+  // A running desk whose terminal has ended says so instead of opening nothing.
+  status.apps[0].live = { t7: "gone", t8: "gone" };
+  find(h.view.render(), "stage-design").events.on_click({}, h.cx);
+  assert.equal(h.calls.length, before);
+  assert.ok(h.view.note);
+});
+
+test("the board shows what each desk is really doing, and a run that stalled can be continued", async () => {
+  const status = runningBoard();
+  const { h, commands } = board({}, status);
+  h.view.data = status;
+  const app = status.apps[0];
+  assert.deepEqual(["research", "design", "assets"].map(id => h.view.stateOf(app, id)), ["done", "working", "pending"]);
+  let tree = h.view.render();
+  assert.ok(find(tree, "state-summary") && find(tree, "count-working") && find(tree, "count-pending") && find(tree, "count-done"));
+  assert.ok(find(tree, "state-design") && !find(tree, "count-stalled") && !find(tree, "stalled-note") && !find(tree, "resume"));
+  // The agent went quiet: it is no longer shown as working.
+  app.activity = { design: "quiet" }; app.live = { t7: "idle", t8: "error" };
+  assert.equal(h.view.stateOf(app, "design"), "quiet");
+  tree = h.view.render();
+  assert.ok(find(tree, "count-quiet") && find(tree, "quiet"));
+  // The conductor died: the run is stalled, said in words, with Continue where there was only Stop.
+  app.conducted = false; app.activity = { design: "stalled" }; app.live = { t7: "gone", t8: "gone" };
+  assert.equal(h.view.stateOf(app, "design"), "stalled");
+  tree = h.view.render();
+  assert.ok(find(tree, "count-stalled") && find(tree, "stalled-note") && find(tree, "stalled") && find(tree, "resume"));
+  find(tree, "continue-stalled").events.on_click({}, h.cx); await h.settle();
+  const started = commands.find(c => c[0] === "hc" && c[1] === "run");
+  assert.deepEqual(plain(started.slice(-3)), ["/local/herdr-app/bin/nv-pipeline.mjs", "run", "cat-cafe"]);
+  assert.equal(started[started.indexOf("--name") + 1], "pipe-abc123");
+  // A stage that waits for the person is "needs you", whatever else is going on.
+  app.state.gate = { kind: "pick", stage: "research" };
+  assert.equal(h.view.stateOf(app, "research"), "needs");
+});
+
+test("the team is cast on the form before the start: agent, model, workers and reviewer per role", async () => {
+  const status = runningBoard();
+  const added = [];
+  const { h, commands } = board({ props: () => ({ create: true }),
+    knownAgents: async () => [{ key: "claude", run: ["claude"], installed: true }, { key: "my-cli", run: ["/opt/bin/mycli", "--tui"], installed: true }, { key: "absent", run: ["absent"], installed: false }],
+    exec: async (command, args) => {
+      commands.push([command, ...args]);
+      if (command === "node" && args[1] === "status") return ok(status);
+      if (command === "node" && args[1] === "agents" && args[2] === "add") { added.push(args.slice(3, -1)); return ok({ added: true }); }
+      if (command === "node" && args[1] === "agents") return ok(CATALOG);
+      if (command === "node" && args[1] === "new") return ok({ id: "cat-cafe" });
+      return ok({ address: "t9" });
+    } }, status);
+  h.view.data = status;
+  assert.ok(find(h.view.render(), "team-loading"));
+  h.view.loadCatalog(h.cx); await h.settle();
+  assert.deepEqual(plain(added), [["my-cli", "/opt/bin/mycli", "--tui"]], "a CLI the + menu knows is made castable; known and missing ones are not added");
+  let tree = h.view.render();
+  assert.ok(find(tree, "team-form") && find(tree, "team-build") && find(tree, "team-build-agent-codex"));
+  assert.ok(!find(tree, "team-build-agent-grok"), "only installed agents are offered");
+  assert.ok(!find(tree, "team-build-count") && find(tree, "team-design-count"), "only stages that can be split take several workers");
+  // Build: claude with the opus model, no reviewer. Design: three workers. Assets: claude with a typed model.
+  find(tree, "team-build-model").events.on_click({}, h.cx);
+  assert.equal(h.view.teamOf("build").model, "opus");
+  find(h.view.render(), "team-build-review").events.on_click({}, h.cx);   // codex → none (the list wraps)
+  assert.equal(h.view.teamOf("build").review, "none");
+  find(h.view.render(), "team-design-count").events.on_click({}, h.cx);
+  find(h.view.render(), "team-design-count").events.on_click({}, h.cx);
+  find(h.view.render(), "team-assets-agent-claude").events.on_click({}, h.cx);
+  h.view.modelInput.set_value("claude-fable-5-2"); h.view.modelInput.handlers.submit({}, h.cx);   // typed for the role clicked last
+  assert.deepEqual(plain(h.view.teamOf("assets")), { agent: "claude", model: "claude-fable-5-2", count: 1, review: "claude", split: true });
+  h.view.ideaInput.set_value("cozy cafe game");
+  h.view.create(h.cx); await h.settle();
+  const made = commands.find(c => c[0] === "node" && c[2] === "new");
+  const flags = made.slice(made.indexOf("--mode") + 2, -1);
+  assert.deepEqual(plain(flags), ["--cast", "build=claude:opus", "--review", "build=none", "--cast", "design=codex*3", "--cast", "assets=claude:claude-fable-5-2"]);
+  assert.deepEqual(plain(h.view.team), {});
+});
+
+test("a stage that has not started can be recast from its details", async () => {
+  const status = runningBoard();
+  const { h, commands } = board({}, status);
+  h.view.data = status; h.view.catalog = CATALOG;
+  h.view.focus = "build";
+  const tree = h.view.render();
+  assert.ok(find(tree, "cast-build") && find(tree, "detail-state"));
+  find(tree, "cast-build-agent-codex").events.on_click({}, h.cx); await h.settle();
+  assert.deepEqual(plain(commands.find(c => c[2] === "cast").slice(2, -1)), ["cast", "cat-cafe", "build", "codex*1", "--review", "codex"]);
+  h.view.focus = "design";
+  assert.ok(!find(h.view.render(), "cast-design"), "a stage that is running is not recast");
+});
+
 test("the + menu's Update opens the update window, which starts pull and install in a terminal it then follows", async () => {
   const menu = harness("nv-new-menu");
   find(menu.view.render(), "nv-update").events.on_click({}, menu.cx);

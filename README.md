@@ -27,6 +27,7 @@ A workspace pack for [Herdr](https://herdr.dev), the desktop app and terminal fo
 - Open **Auto app** from the + menu, choose a project folder, describe what to build, and add references if you have them (Play Store links, repositories, screenshots).
 - Nine teammates take turns: Researcher, Planner, Designer, Artist, Developer, Tester, Marketer, Release manager, Publisher. Each is a fresh agent that reads one task and writes one result, so nothing piles up in a conversation.
 - Different models do what they are good at: Grok researches, Codex draws, Claude plans, builds and releases. A model that is missing or fails is replaced by Claude.
+- Cast the team before it starts: for each role pick any agent CLI installed on the machine, its model, how many work at once, and a reviewer. Work that fails the review or the automatic image checks goes back for another round, and a failed test goes back to the developer.
 - Choose how much it asks you: **unattended**, **ask before production** (default), or **ask at every choice**. Ideas and designs appear as cards to click.
 - Apps are built with Flutter; games with Godot or Unity + URP depending on the genre. Releases go to the Play internal track first, then production.
 - References are studied, never copied: the genre and the loop are taken, the name, art and text are new.

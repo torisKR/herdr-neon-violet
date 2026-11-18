@@ -7,12 +7,19 @@
 - `pipeline/design/directions.md`, `pipeline/brief/brief.md` (engine: {{engine}})
 
 **Do**
-1. List what the screens in the brief need in `pipeline/assets/manifest.md`: file, size, where it is used. Only what the first-version scope uses.
-2. Generate them with the `sprite-gen` skill (sprites, animation atlases, backgrounds, logo lettering) or a pixel art skill, in one consistent style. Remove backgrounds and export at the sizes the engine wants.
-3. Put them where the engine expects them (Flutter: `assets/images/...`, listed for `pubspec.yaml` in the manifest; Godot: `assets/...`, nearest-neighbour import for pixel art; Unity: `Assets/Art/...`).
-4. Make the launcher icon source: 1024x1024 without transparency for the store icon, and a separate foreground for the adaptive icon.
-5. Look at each result. Regenerate ones that are off-style or broken.
+1. When you work alone: write `pipeline/assets/style.md` (Korean: palette as hex, outline, shading and light direction, pixel grid or stroke style, one prompt prefix for every generation) and `pipeline/assets/manifest.json`, the list of every image the screens in the brief need and nothing more:
+   ```json
+   {"items":[
+     {"file":"assets/images/cat_idle.png","w":64,"h":64,"alpha":true,"use":"player, idle"},
+     {"file":"assets/images/bg_cafe.png","w":1080,"h":1920,"alpha":false,"use":"main screen background"}]}
+   ```
+   Paths are relative to the project folder, where the engine expects the file (Flutter: `assets/images/...`; Godot: `assets/...`, nearest-neighbour import for pixel art; Unity: `Assets/Art/...`). `w`, `h` are exact pixels. `alpha` is `true` when the background must be transparent and `false` when the image must be fully opaque. Also write `pipeline/assets/manifest.md` (Korean) with the same list as a table for people.
+   When a lead has already written the style and the manifest, read them and change neither.
+2. Generate your images with the `sprite-gen` skill (sprites, animation atlases, backgrounds, logo lettering) or a pixel art skill, every one starting from the style file. Remove backgrounds where `alpha` is true and export at exactly the listed size.
+3. Include the launcher icon source: 1024x1024 without transparency for the store icon, and a separate foreground with transparency for the adaptive icon (both are manifest items).
+4. Look at each result at its real size. Regenerate ones that are off-style, unreadable or broken.
+5. The conductor checks every manifest item itself when you are done: the file exists, has the listed size, is transparent or opaque as listed, is not blank and is not a copy of another item. What fails comes back to you as a fix list, so check sizes before you finish (`file`, `sips -g pixelWidth -g pixelHeight`, or the image tool you used).
 
 **Images:** if you can generate images yourself (Codex has an image tool), do that directly and save the files at the paths above; otherwise use the skills named above.
 
-**result.json:** `{"status":"done","summary":"<how many assets, where the manifest is>"}`
+**result.json:** `{"status":"done","summary":"<how many assets you made, where the manifest is>"}`

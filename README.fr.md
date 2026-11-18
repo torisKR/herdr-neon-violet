@@ -27,6 +27,7 @@ Un pack d'espace de travail pour [Herdr](https://herdr.dev), l'application de bu
 - Ouvrez **Auto app** dans le menu +, choisissez un dossier de projet, décrivez ce qu'il faut construire et ajoutez des références si vous en avez (liens Play Store, dépôts, captures d'écran).
 - Neuf membres se relaient : chercheur, planificateur, designer, artiste, développeur, testeur, marketeur, responsable des versions, éditeur. Chacun est un nouvel agent qui lit une tâche et écrit un résultat ; rien ne s'accumule dans une conversation.
 - Chaque modèle fait ce qu'il sait faire : Grok recherche, Codex dessine, Claude planifie, développe et publie. Un modèle absent ou en échec est remplacé par Claude.
+- Avant le départ, choisissez pour chaque rôle un agent CLI installé sur la machine, son modèle, le nombre de travailleurs et un relecteur. Un travail refusé par la relecture ou par les contrôles automatiques des images repart pour un tour, et un test en échec revient au développeur.
 - Choisissez ce qu'il vous demande : **sans surveillance**, **demander avant la production** (par défaut) ou **demander à chaque choix**. Les idées et les designs apparaissent en cartes à cliquer.
 - Les applications sont faites avec Flutter ; les jeux avec Godot ou Unity + URP selon le genre. Les versions passent par la piste de test interne de Play, puis la production.
 - Les références sont étudiées, jamais copiées : le genre et la boucle sont repris, le nom, les images et les textes sont nouveaux.

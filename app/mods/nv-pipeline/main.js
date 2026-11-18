@@ -297,7 +297,9 @@ export default class Pipeline extends View {
             .child(working ? screen.loop("opacity", { from: 0.45, to: 1, period: 300 }) : screen)
             .child(div().w(4).h(4).bg(t.border))))
         .child(div().w(112).h(6).rounded(2).flex_none().bg(working ? color : t.border))
-        .child(div().font_semibold().text_size(12).truncate().child(roleName(stage)))
+        .child(h_flex().gap(5).items_center()
+          .child(div().font_semibold().text_size(12).truncate().child(roleName(stage)))
+          .child(div().px(4).rounded(4).text_size(9).bg(t.raised).text_color(color).child(rec.agent ?? stage.agent ?? "")))
         .child(div().text_size(10).truncate().text_color(needs || failed ? t.blocked : working ? t.working : done ? t.done : t.dim)
           .child(needs ? l.needsYou : `${l.status[rec.status] ?? rec.status}${rec.endedAt && done ? ` · ${ago(rec.endedAt, now)}` : ""}`));
     };
@@ -368,6 +370,7 @@ export default class Pipeline extends View {
       .child(h_flex().gap(8).items_center()
         .child(this.avatar(id, stage?.role ?? "", t, 26))
         .child(div().font_semibold().text_size(13).child(roleName(stage)))
+        .child(div().px(5).rounded(4).text_size(10).bg(t.raised).text_color(t.accent).child(rec.agent ?? stage?.agent ?? ""))
         .child(div().text_size(11).text_color(t.muted).child(l.status[rec.status] ?? rec.status ?? ""))
         .child(div().flex_1())
         .when(Boolean(rec.terminal), el => el.child(this.button("watch", l.watch, () => run("terminal.peek", { terminal: rec.terminal }), t))))

@@ -52,6 +52,7 @@ export function realSystem(env = process.env) {
     },
     self: env.HC_TERMINAL_ID || null,
     platform: process.platform,
+    has(bin) { return spawnSync(process.platform === "win32" ? "where" : "which", [bin], { stdio: "ignore", windowsHide: true }).status === 0; },
   };
 }
 
@@ -67,8 +68,36 @@ function writeJson(file, value) {
 // Ids name folders and terminals, so they are plain ASCII (Android tooling dislikes other paths); the display name keeps its script.
 export const slug = name => String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "app";
 
+// How each model's CLI is started so it works without a person. {prompt} is where the task goes.
+// claude and grok decide per action in their "auto" mode; codex needs no approval but may only
+// write inside the project (its own image tool still works). agy can only run unattended by
+// skipping its permission prompts, which is the person’s call: it is listed without that flag and
+// not cast by default (see docs/PIPELINE.md to turn it on).
+export const AGENTS = {
+  claude: ["claude", "--permission-mode", "auto", "{prompt}"],
+  grok: ["grok", "--permission-mode", "auto", "{prompt}"],
+  codex: ["codex", "--no-daemon", "-a", "never", "-s", "workspace-write", "{prompt}"],
+  agy: ["agy", "-i", "{prompt}"],
+};
+// Who does what: live trends → grok; planning, code and releases (skills, Notion) → claude;
+// pictures → codex (it generates images itself). A model that is not installed, or whose try
+// failed, is replaced by `fallback`. Any stage can be recast in settings.json.
+export const CAST = { research: "grok", brief: "claude", design: "codex", assets: "codex", build: "claude", test: "claude", store: "claude", internal: "claude", release: "claude" };
+
 function settings(sys) {
-  return { root: join(homedir(), "projects"), agent: ["claude", "--permission-mode", "auto"], retries: 1, ...readJson(join(sys.home, "settings.json"), {}) };
+  const saved = readJson(join(sys.home, "settings.json"), {});
+  return { root: join(homedir(), "projects"), retries: 1, fallback: "claude", ...saved, agents: { ...AGENTS, ...(saved.agents ?? {}) }, cast: { ...CAST, ...(saved.cast ?? {}) } };
+}
+
+/** The model for a stage and its command line: the cast, unless it is missing or already failed once. */
+export function agentFor(sys, stageId, tries = 1) {
+  const set = settings(sys);
+  if (Array.isArray(set.agent)) return { name: "custom", argv: prompt => [...set.agent, prompt] };   // one command for every stage
+  const usable = name => Array.isArray(set.agents[name]) && sys.has(set.agents[name][0]);
+  const wanted = set.cast[stageId] ?? set.fallback;
+  const name = tries === 1 && usable(wanted) ? wanted : usable(set.fallback) ? set.fallback : wanted;
+  const template = set.agents[name] ?? AGENTS.claude;
+  return { name, argv: prompt => template.includes("{prompt}") ? template.map(a => a === "{prompt}" ? prompt : a) : [...template, prompt] };
 }
 const registry = sys => readJson(join(sys.home, "apps.json"), []);
 const keyFile = sys => join(sys.home, "secrets", "play-key.json");
@@ -158,10 +187,12 @@ async function runStage(sys, app, state, stage) {
   const prompt = `You are the ${stage.role} ("${stage.id}" stage) of an unattended app pipeline for "${state.name}". Read pipeline/${stage.id}/TASK.md and do exactly what it says, nothing from other stages. Finish by writing pipeline/${stage.id}/result.json.`;
   const name = `pl-${state.id}-${stage.id}`.slice(0, 48);
   sys.hc(["kill", name]); sys.hc(["rm", name]);   // a leftover from an interrupted run
-  const started = sys.hc(["run", "--bg", "--json", "--no-notify", "--outlive-parent", "--name", name, "--cwd", app.dir, "--", ...viaShell([...settings(sys).agent, prompt], sys.platform)]);
+  const record = state.stages[stage.id];
+  const agent = agentFor(sys, stage.id, record.tries ?? 1);
+  record.agent = agent.name;
+  const started = sys.hc(["run", "--bg", "--json", "--no-notify", "--outlive-parent", "--name", name, "--cwd", app.dir, "--", ...viaShell(agent.argv(prompt), sys.platform)]);
   if (started.code !== 0) return { status: "failed", summary: `could not start the agent: ${(started.stderr || started.stdout).trim()}` };
   const terminal = readJsonText(started.stdout)?.address ?? name;
-  const record = state.stages[stage.id];
   record.terminal = terminal;
   save(app, state);
   const begun = sys.now(), deadline = begun + stage.minutes * 60000;
@@ -406,7 +437,9 @@ export function readFeed(dir, limit = 40) {
 
 function status(sys, id) {
   const apps = registry(sys).filter(a => !id || a.id === id).map(a => ({ ...a, state: readJson(stateFile(a.dir), null), feed: readFeed(a.dir) }));
-  return { key: keyStatus(sys), root: settings(sys).root, stages: STAGES, apps };
+  // Who would take each stage now, so the board can show the model at every desk before it starts.
+  const cast = Object.fromEntries(STAGES.map(s => [s.id, agentFor(sys, s.id).name]));
+  return { key: keyStatus(sys), root: settings(sys).root, stages: STAGES.map(s => ({ ...s, agent: cast[s.id] })), apps };
 }
 
 export function parseArgs(argv) {

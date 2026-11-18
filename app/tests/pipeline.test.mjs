@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { STAGES, advance, autoPick, main, normalize, parseArgs, readFeed, readKey, render, slug, viaShell } from "../pipeline/nv-pipeline.mjs";
+import { CAST, STAGES, advance, agentFor, autoPick, main, normalize, parseArgs, readFeed, readKey, render, slug, viaShell } from "../pipeline/nv-pipeline.mjs";
 
 const here = fileURLToPath(new URL("../pipeline", import.meta.url));
 const KEY = JSON.stringify({ type: "service_account", client_email: "ci@play.iam.gserviceaccount.com", private_key: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n", project_id: "p" });
@@ -18,7 +18,7 @@ function world({ agent = stage => ({ status: "done", summary: `${stage} ok` }), 
   if (key) { mkdirSync(join(home, "secrets")); writeFileSync(join(home, "secrets", "play-key.json"), KEY); }
   let clock = 0;
   const sys = {
-    home, here, self: "t-runner", now: () => clock, sleep: async ms => { clock += ms; },
+    home, here, self: "t-runner", platform: "win32", has: () => true, now: () => clock, sleep: async ms => { clock += ms; },
     hc(args) {
       calls.push(args);
       if (args[0] === "run") {
@@ -225,4 +225,56 @@ test("on macOS and Linux agents start through a login shell, so node and claude 
   await advance(w.sys, "cat-cafe", { until: "research" });
   const launch = w.calls.find(c => c[0] === "run");
   assert.deepEqual(launch.slice(launch.indexOf("--") + 1, launch.indexOf("--") + 6), ["/bin/sh", "-lc", 'exec "$@"', "sh", "fake-agent"]);
+});
+
+test("each stage goes to its model: grok researches, codex draws, claude does the rest", async () => {
+  const w = world({ agent: team });
+  writeFileSync(join(w.sys.home, "settings.json"), JSON.stringify({ root: join(w.root, "projects") }));   // no single custom agent
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  const state = await advance(w.sys, "cat-cafe");
+  assert.deepEqual(Object.fromEntries(STAGES.map(s => [s.id, state.stages[s.id].agent])), CAST);
+  const launch = stage => { const c = w.calls.find(c => c[0] === "run" && c.includes(`pl-cat-cafe-${stage}`)); return c.slice(c.indexOf("--") + 1); };
+  assert.deepEqual(launch("research").slice(0, 3), ["grok", "--permission-mode", "auto"]);
+  assert.deepEqual(launch("design").slice(0, 6), ["codex", "--no-daemon", "-a", "never", "-s", "workspace-write"]);
+  assert.deepEqual(launch("test").slice(0, 3), ["claude", "--permission-mode", "auto"]);
+  assert.match(launch("test").at(-1), /"test" stage/);
+  assert.deepEqual(launch("build").slice(0, 3), ["claude", "--permission-mode", "auto"]);
+  const status = await w.run("status");
+  assert.equal(status.stages.find(s => s.id === "research").agent, "grok");
+});
+
+test("a model that is not installed, or that failed once, is replaced by claude", async () => {
+  let tries = 0;
+  const w = world({ agent: stage => stage === "design" && tries++ === 0 ? { status: "failed", summary: "weekly limit reached" } : team(stage) });
+  writeFileSync(join(w.sys.home, "settings.json"), JSON.stringify({ root: join(w.root, "projects") }));
+  w.sys.has = bin => bin !== "grok";   // as on a machine with only claude and codex
+  assert.equal(agentFor(w.sys, "research").name, "claude");
+  assert.equal(agentFor(w.sys, "design").name, "codex");
+  assert.equal(agentFor(w.sys, "design", 2).name, "claude");
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  const state = await advance(w.sys, "cat-cafe");
+  assert.equal(state.status, "done");
+  assert.equal(state.stages.research.agent, "claude");
+  assert.equal(state.stages.design.agent, "claude");   // the second try
+  assert.equal(state.stages.assets.agent, "codex");
+  assert.equal(state.stages.test.agent, "claude");
+  const designRuns = w.calls.filter(c => c[0] === "run" && c.includes("pl-cat-cafe-design")).map(c => c[c.indexOf("--") + 1]);
+  assert.deepEqual(designRuns, ["codex", "claude"]);
+});
+
+test("agy is never started with skipped permissions unless the person writes that into settings", () => {
+  const w = world();
+  writeFileSync(join(w.sys.home, "settings.json"), JSON.stringify({ cast: { test: "agy" } }));
+  assert.deepEqual(agentFor(w.sys, "test").argv("go"), ["agy", "-i", "go"]);
+  assert.ok(!Object.values(CAST).includes("agy"));
+  writeFileSync(join(w.sys.home, "settings.json"), JSON.stringify({ cast: { test: "agy" }, agents: { agy: ["agy", "--dangerously-skip-permissions", "-i", "{prompt}"] } }));
+  assert.deepEqual(agentFor(w.sys, "test").argv("go"), ["agy", "--dangerously-skip-permissions", "-i", "go"]);
+});
+
+test("settings can recast a stage and change how a model is started", () => {
+  const w = world();
+  writeFileSync(join(w.sys.home, "settings.json"), JSON.stringify({ cast: { research: "claude" }, agents: { claude: ["claude", "--model", "opus", "{prompt}", "--verbose"] } }));
+  const a = agentFor(w.sys, "research");
+  assert.equal(a.name, "claude");
+  assert.deepEqual(a.argv("go"), ["claude", "--model", "opus", "go", "--verbose"]);
 });

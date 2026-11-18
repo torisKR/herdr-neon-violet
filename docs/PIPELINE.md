@@ -20,6 +20,22 @@ Open it from the **+** menu (**Auto app**) or with Ctrl+Shift+Y (Cmd+Shift+Y on 
 
 Apps are built with Flutter. Games follow this table in the brief stage: pixel, puzzle, ink-style 2D RPG and small idle games use Godot; 2D with heavy lighting and effects uses Unity or Godot; 3D tycoon, fishing and low-poly action use Unity + URP, which is also the default when unsure.
 
+## Which model does what
+
+Each teammate is a different CLI where that plays to its strength:
+
+| Stages | Model | Started as |
+|---|---|---|
+| research | Grok (live trends) | `grok --permission-mode auto` |
+| brief, build, test, store, internal, release | Claude (skills, Notion) | `claude --permission-mode auto` |
+| design, assets | Codex (generates the images itself) | `codex --no-daemon -a never -s workspace-write` |
+
+A model that is not installed, or whose first try at a stage failed (a usage limit, a crash), is replaced by Claude for that stage. The board shows the model at every desk.
+
+**Antigravity (`agy`)** is known to the pipeline but not cast by default: the only way it runs unattended is by skipping its permission prompts, and that is your decision, not a default. To have it test the build (a different model from the one that wrote it), add to settings: `"cast": {"test": "agy"}, "agents": {"agy": ["agy", "--dangerously-skip-permissions", "-i", "{prompt}"]}`. Without the flag it stops at its first permission prompt and the board shows that it needs you.
+
+Change it in `~/.config/herdr-app/pipeline/settings.json`: `"cast": {"test": "claude"}` reassigns a stage, `"agents": {"claude": ["claude", "--model", "opus", "{prompt}"]}` changes how a model is started, `"fallback"` names the stand-in.
+
 ## The board
 
 - **Office:** every teammate is a pixel character at a desk. The one working bobs at a glowing screen with its latest note in a speech bubble; a finished one passes an envelope to the next desk; one that needs you waves an exclamation mark; the rest doze. Click a desk for details.
@@ -59,4 +75,4 @@ nv-pipeline status | pick <id> <option> | approve <id> | mode <id> auto|promote|
 nv-pipeline say <id> "make it cuter" | retry <id> [stage] | stop <id> | remove <id>
 ```
 
-`nv-pipeline` is `node ~/.config/herdr-app/bin/nv-pipeline.mjs`. Settings (optional) in `~/.config/herdr-app/pipeline/settings.json`: `root` (where new projects go, default `~/projects`), `agent` (the command each stage runs, default `["claude", "--permission-mode", "auto"]`), `retries`. Stage instructions are in `~/.config/herdr-app/pipeline/stages/*.md` and can be edited.
+`nv-pipeline` is `node ~/.config/herdr-app/bin/nv-pipeline.mjs`. Settings (optional) in `~/.config/herdr-app/pipeline/settings.json`: `root` (where new projects go, default `~/projects`), `cast`, `agents` and `fallback` (above), `retries`. Stage instructions are in `~/.config/herdr-app/pipeline/stages/*.md` and can be edited.

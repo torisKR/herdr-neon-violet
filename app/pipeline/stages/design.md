@@ -11,6 +11,8 @@
 3. Look at each image yourself. Regenerate one that is unreadable or off-brief.
 4. Write `pipeline/design/directions.md` (Korean): for each direction the palette (hex), type, shape rules, and why it fits the audience. Recommend one.
 
+**Images:** if you can generate images yourself (Codex has an image tool), do that directly and save the files at the paths above; otherwise use the skills named above.
+
 **result.json**
 ```json
 {"status":"done","summary":"...","options":[

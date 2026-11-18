@@ -13,4 +13,6 @@
 4. Make the launcher icon source: 1024x1024 without transparency for the store icon, and a separate foreground for the adaptive icon.
 5. Look at each result. Regenerate ones that are off-style or broken.
 
+**Images:** if you can generate images yourself (Codex has an image tool), do that directly and save the files at the paths above; otherwise use the skills named above.
+
 **result.json:** `{"status":"done","summary":"<how many assets, where the manifest is>"}`

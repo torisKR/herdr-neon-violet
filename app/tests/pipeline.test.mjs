@@ -445,3 +445,20 @@ test("references are classified, pictures are copied into the project, and every
   assert.ok(tasks.research.includes("references.md"));
   assert.equal(reference("https://apps.apple.com/app/id1", "/x", 0).kind, "appstore");
 });
+
+test("an upload stage left running by a conductor that died is not started again on its own", async () => {
+  const w = world({ agent: team });
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  await advance(w.sys, "cat-cafe", { until: "internal" });
+  // As after a crash in the middle of the release: marked running, no terminal, no result.
+  const file = join(w.root, "projects", "cat-cafe", "pipeline", "state.json");
+  const saved = JSON.parse(readFileSync(file, "utf8"));
+  saved.stages.release = { status: "running", tries: 1 };
+  writeFileSync(file, JSON.stringify(saved));
+  const state = await advance(w.sys, "cat-cafe");
+  assert.deepEqual(state.gate, { kind: "blocked", stage: "release" });
+  assert.match(state.stages.release.error, /Check Play Console/);
+  assert.ok(!w.calls.some(c => c[0] === "run" && c.includes(T("release"))));
+  await w.run("retry", "cat-cafe", "release");
+  assert.equal((await advance(w.sys, "cat-cafe")).status, "done");
+});

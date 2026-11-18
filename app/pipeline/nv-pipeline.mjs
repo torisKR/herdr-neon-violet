@@ -101,7 +101,7 @@ function locked(file, fn) {
   while (!publish(file, String(process.pid))) {
     const owner = ownerOf(file);
     if (owner && !alive(owner)) { try { unlinkSync(file); } catch { /* someone else cleaned it */ } continue; }
-    if (Date.now() > until) throw new Error(`${file} is held by process ${owner ?? "?"}`);
+    if (Date.now() > until) throw new Error(`${file} is held by process ${owner ?? "?"}. If nothing of this pipeline is running (for example after a restart), delete that file and try again.`);
     sleepSync(15);
   }
   try { return fn(); } finally { if (ownerOf(file) === process.pid) { try { unlinkSync(file); } catch { /* already gone */ } } }
@@ -375,7 +375,7 @@ function takeRunLock(app, id) {
   for (let i = 0; i < 5; i++) {
     if (publish(file, String(process.pid))) return () => { if (ownerOf(file) === process.pid) { try { unlinkSync(file); } catch { /* already gone */ } } };
     const owner = ownerOf(file);
-    if (!owner || alive(owner)) throw new UsageError(`${id} is already running${owner ? ` (process ${owner})` : ""}`);
+    if (!owner || alive(owner)) throw new UsageError(`${id} is already running${owner ? ` (process ${owner})` : ""}. If it is not (for example after a restart), delete ${file} and try again.`);
     try { unlinkSync(file); } catch { /* someone else cleaned it */ }
   }
   throw new UsageError(`${id} is already running`);
@@ -423,8 +423,17 @@ export async function advance(sys, id, { until = null } = {}) {
         if (stage.gate === "approve" && s.mode !== "auto" && !s.approved?.[stage.id]) { go = { gate: "approve" }; return; }
         // An agent that was waiting for the person is taken over if it is still there; if it has
         // finished its work meanwhile, that result is used. It is not started again.
-        const adopt = r.status === "blocked" && r.terminal && isLive(sys, r.terminal) ? r.terminal : null;
-        const leftover = r.status === "blocked" && !adopt ? readJson(join(app.dir, "pipeline", stage.id, "result.json"), null) : null;
+        // The same goes for a stage a conductor left "running" when it died: its agent or its result
+        // is picked up. An upload stage in that state is never simply started again, because the
+        // first try may already have uploaded or promoted: the person checks and chooses "run again".
+        const unfinished = r.status === "blocked" || r.status === "running";
+        const adopt = unfinished && r.terminal && isLive(sys, r.terminal) ? r.terminal : null;
+        const leftover = unfinished && !adopt ? readJson(join(app.dir, "pipeline", stage.id, "result.json"), null) : null;
+        if (r.status === "running" && !adopt && leftover?.status !== "done" && stage.needsKey) {
+          r.status = "blocked"; r.terminal = null;
+          r.error = "The last run stopped in the middle of this upload stage. Check Play Console for what it did, then choose Run again.";
+          go = { gate: "blocked" }; return;
+        }
         s.stage = stage.id; s.status = "running"; s.gate = null;
         r.status = "running"; r.endedAt = null; r.error = null;
         if (adopt) { go = { terminal: adopt, adopted: true }; return; }

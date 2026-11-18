@@ -1259,6 +1259,123 @@ test("a stage that has not started can be recast from its details", async () => 
   assert.ok(!find(h.view.render(), "cast-design"), "a stage that is running is not recast");
 });
 
+// ---- Today: what to pick up, and where each project was left
+
+const todayProject = (id, patch = {}) => ({ id, name: id, dir: `/work/${id}`, kind: "personal", focus: null, note: null, moved: false, reasons: ["nonote"],
+  git: { repo: true, branch: "main", head: "abc1234", dirty: 0, files: [], commits: [{ hash: "abc1234", at: new Date().toISOString(), subject: "first" }] }, verification: { state: "none" }, ...patch });
+
+/** The Today tab with a fake nv-today on this computer and on "macbook": it records every request and answers `list` from `data`. */
+function todayBoard(data, overrides = {}) {
+  const requests = [], sent = [];
+  const h = harness("nv-today", {
+    settings: () => ({ language: "ko" }), machines: () => [{ name: null, layout: "ready" }, { name: "macbook", layout: "ready" }, { name: "off", layout: "unavailable" }],
+    readTextFile: async () => "// nv-today source",
+    exec: async (command, args, opts) => {
+      if (command === "hc") { sent.push(args); return ok({}); }
+      const request = JSON.parse(/run\((\{.*\})\)\)\); \} catch/.exec(args[2].split("\n").at(-1))[1]), on = opts?.on ?? null;
+      requests.push({ on, ...request });
+      if (request.command === "list") return ok({ version: 1, tool: on ? "/Users/me/.config/herdr-app/bin/nv-today.mjs" : "C:/Users/me/.config/herdr-app/bin/nv-today.mjs", projects: data[on ?? "local"] ?? [] });
+      if (request.command === "draft") return ok({ id: request.args[0], state: "마지막 커밋: first (abc1234)" });
+      return ok({});
+    }, ...overrides });
+  return { h, requests, sent };
+}
+
+test("the + menu opens Today, which lists the projects of this computer and of every connected machine", async () => {
+  const menu = harness("nv-new-menu");
+  find(menu.view.render(), "nv-today").events.on_click({}, menu.cx);
+  assert.deepEqual(menu.calls[0], { name: "tab.new", args: { name: "Today", space: "s", mod: "nv-today" } });
+  const data = { local: [todayProject("neon", { focus: "main", note: { next: "테스트 실행", state: "기능 완료", at: new Date().toISOString() } }), todayProject("site")],
+    macbook: [todayProject("cat-cafe", { focus: "maint", kind: "work", note: { next: "배포", why: "키 없음" }, reasons: ["stopped", "stale"], verification: { state: "stale", text: "12개 통과", at: new Date().toISOString(), commits: 2, files: 5 } })] };
+  const { h, requests } = todayBoard(data);
+  assert.ok(find(h.view.render(), "loading"));
+  h.view.load(h.cx); await h.settle();
+  assert.deepEqual(plain(requests.map(r => [r.on, r.command])), [[null, "list"], ["macbook", "list"]], "the unavailable machine is not asked");
+  let tree = h.view.render();
+  // The two places at the top, and everything else below.
+  assert.ok(find(find(tree, "slot-main"), "project-/neon") && find(find(tree, "slot-maint"), "project-macbook/cat-cafe") && find(find(tree, "others"), "project-/site"));
+  assert.ok(find(tree, "next-/neon") && find(tree, "state-/neon") && !find(tree, "why-/neon"));
+  assert.ok(find(tree, "why-macbook/cat-cafe") && find(tree, "reason-macbook/cat-cafe-stale") && find(tree, "verified-macbook/cat-cafe"));
+  // The work filter leaves only work projects, and says so in the empty main place.
+  find(tree, "filter-work").events.on_click({}, h.cx);
+  tree = h.view.render();
+  assert.ok(find(tree, "empty-main") && find(tree, "project-macbook/cat-cafe") && !find(tree, "project-/neon") && !find(tree, "project-/site"));
+  find(tree, "filter-all").events.on_click({}, h.cx);
+  find(h.view.render(), "toggle-all").events.on_click({}, h.cx);
+  assert.ok(!find(h.view.render(), "others"), "the full list can be folded away");
+});
+
+test("Continue opens the project's space where it lives, and an agent is told the note", async () => {
+  const stale = { state: "stale", text: "12개 통과", at: new Date().toISOString(), commits: 1, files: 2 };
+  const data = { local: [todayProject("neon", { dir: "C:\\work\\neon", note: { next: "테스트 실행" } })],
+    macbook: [todayProject("cat-cafe", { note: { state: "화면 완료", next: "재로그인 확인", why: "계정 없음", hold: "가격 정책" }, verification: stale })] };
+  const { h } = todayBoard(data, {
+    spaces: () => [{ id: "s1", machine: null, folder: "c:/work/neon/" }, { id: "s2", machine: null, folder: "/work/cat-cafe" }],
+    knownAgents: async () => [{ key: "codex", name: "Codex", run: ["codex"], installed: true }, { key: "claude-code", name: "Claude", run: ["claude"], installed: true }, { key: "herdr-web-browser", run: ["x"], installed: true }] });
+  h.view.load(h.cx); await h.settle();
+  const tree = h.view.render();
+  // Its space exists (the same folder, however the path is written): go there.
+  find(tree, "resume-/neon").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls.at(-1), { name: "space.select", args: { id: "s1" } });
+  // The Mac project has no space on the Mac (the local one with the same path is another machine's): make one there.
+  find(tree, "resume-macbook/cat-cafe").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls.at(-1), { name: "space.new", args: { name: "cat-cafe", folder: "/work/cat-cafe", machine: "macbook" } });
+  // With an agent: it starts in that space with the note as its first message.
+  find(tree, "resume-agent-macbook/cat-cafe").events.on_click({}, h.cx); await h.settle();
+  const made = h.calls.at(-1);
+  assert.deepEqual([made.name, made.args.machine, made.args.folder, plain(made.args.argv)], ["space.new", "macbook", "/work/cat-cafe", ["claude"]]);
+  for (const part of ["다음 행동: 재로그인 확인", "현재 상태: 화면 완료", "멈춘 이유: 계정 없음", "보류한 결정", "가격 정책", "다시 확인하세요",
+    'node "/Users/me/.config/herdr-app/bin/nv-today.mjs" note cat-cafe --state']) assert.ok(made.args.task.includes(part), part);
+  find(tree, "resume-agent-/neon").events.on_click({}, h.cx); await h.settle();
+  assert.deepEqual(h.calls.slice(-2).map(c => c.name), ["space.select", "tab.new"]);
+  assert.equal(h.calls.at(-1).args.space, "s1");
+  assert.ok(h.calls.at(-1).args.task.includes("검증했다고 남긴 기록은 없습니다"));
+});
+
+test("leaving a note: short fields, a draft from git, and an old verification is not renewed by saving", async () => {
+  const data = { local: [todayProject("neon", { note: { next: "테스트 실행", state: "기능 완료", verified: { text: "12개 통과" } }, verification: { state: "fresh", text: "12개 통과", at: new Date().toISOString() } })], macbook: [] };
+  const { h, requests } = todayBoard(data);
+  h.view.load(h.cx); await h.settle();
+  find(h.view.render(), "note-/neon").events.on_click({}, h.cx);
+  let tree = h.view.render();
+  assert.ok(find(tree, "form-/neon") && find(tree, "field-next") && find(tree, "field-verified") && !find(tree, "resume-/neon"));
+  assert.deepEqual([h.view.inputs.next.value(), h.view.inputs.verified.value()], ["테스트 실행", "12개 통과"]);
+  find(tree, "draft-note").events.on_click({}, h.cx); await h.settle();
+  assert.equal(h.view.inputs.state.value(), "마지막 커밋: first (abc1234)");
+  h.view.inputs.next.set_value("  스토어 문구 검토  ");
+  find(h.view.render(), "save-note").events.on_click({}, h.cx); await h.settle();
+  const saved = requests.find(r => r.command === "note");
+  assert.deepEqual(plain(saved), { on: null, command: "note", args: ["neon"], flags: { next: "스토어 문구 검토", state: "마지막 커밋: first (abc1234)", why: "", hold: "" } });
+  assert.equal(h.view.editing, null);
+  // Saying "checked again now" stamps the same text against the code as it is.
+  find(h.view.render(), "note-/neon").events.on_click({}, h.cx);
+  find(h.view.render(), "recheck").events.on_click({}, h.cx);
+  h.view.saveNote(h.cx); await h.settle();
+  assert.equal(requests.filter(r => r.command === "note").at(-1).flags.verified, "12개 통과");
+});
+
+test("pinning, sorting into work and personal, adding the folder in focus, and asking a working agent for the note", async () => {
+  const data = { local: [todayProject("neon")], macbook: [todayProject("cat-cafe", { focus: "main" })] };
+  const { h, requests, sent } = todayBoard(data, {
+    focused: () => ({ cwd: "/Users/me/projects/new-app", terminal: "macbook/t7" }),
+    terminals: () => [{ address: "t3", cwd: "/work/neon/src", status: "working", state: "live" }, { address: "macbook/t9", cwd: "/work/neon", status: "idle", state: "live" }, { address: "t4", cwd: "/work/neon", state: "live" }] });
+  h.view.load(h.cx); await h.settle();
+  const click = async id => { find(h.view.render(), id).events.on_click({}, h.cx); await h.settle(); };
+  await click("main-/neon"); await click("maint-/neon"); await click("unfocus-macbook/cat-cafe"); await click("kind-/neon"); await click("remove-/neon"); await click("add-here");
+  assert.deepEqual(plain(requests.filter(r => r.command !== "list").map(r => [r.on, r.command, ...r.args])), [
+    [null, "focus", "neon", "main"], [null, "focus", "neon", "maint"], ["macbook", "focus", "cat-cafe", "none"], [null, "kind", "neon", "work"], [null, "remove", "neon"],
+    ["macbook", "add", "/Users/me/projects/new-app"]]);
+  assert.ok(!find(h.view.render(), "remove-macbook/cat-cafe"), "a pinned project is unpinned before it can be removed");
+  // The agent working in the project's folder on the same machine is asked; a shell there, or another machine's agent, is not.
+  await click("ask-/neon");
+  assert.equal(sent.length, 1);
+  assert.deepEqual([sent[0][0], sent[0][1]], ["send", "t3"]);
+  assert.ok(sent[0][2].includes('nv-today.mjs" note neon --state'));
+  assert.ok(!find(h.view.render(), "ask-macbook/cat-cafe"));
+  await click("toggle-changes-/neon");
+  assert.ok(find(h.view.render(), "changes-/neon") && find(h.view.render(), "commit-/neon-0"));
+});
+
 test("the + menu's Update opens the update window, which starts pull and install in a terminal it then follows", async () => {
   const menu = harness("nv-new-menu");
   find(menu.view.render(), "nv-update").events.on_click({}, menu.cx);

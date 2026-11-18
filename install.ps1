@@ -62,9 +62,10 @@ if (Test-Path $app) {
   New-Item -ItemType Directory -Force (Join-Path $app 'pipeline\stages') | Out-Null
   Copy-Item (Join-Path $here 'app\pipeline\stages\*.md') (Join-Path $app 'pipeline\stages') -Force
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
+  Copy-Item (Join-Path $here 'app\today\nv-today.mjs') (Join-Path $app 'bin\nv-today.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs','nv-paste','nv-pipeline','nv-update') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs','nv-paste','nv-pipeline','nv-today','nv-update') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
   # Where this pack lives, so Update in the + menu can pull and install again.
   [IO.File]::WriteAllText((Join-Path $app 'nv-pack.json'), (@{ repo = $here } | ConvertTo-Json -Compress))

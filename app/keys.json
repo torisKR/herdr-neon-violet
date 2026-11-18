@@ -7,6 +7,13 @@
     "ctrl-shift-u": "mod.open:nv-browser",
     "ctrl-shift-g": "mod.open:nv-toggle-prs",
     "ctrl-shift-m": "mod.open:devices",
+    "ctrl-shift-j": {
+      "command": "tab.new",
+      "args": {
+        "name": "Today",
+        "mod": "nv-today"
+      }
+    },
     "ctrl-shift-y": {
       "command": "tab.new",
       "args": {

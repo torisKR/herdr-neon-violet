@@ -7,6 +7,7 @@
 - Engine: **{{engine}}** · Android application id: `{{package}}`
 
 **Do**
+0. When `pipeline/build/fixes.md` exists, the project is already built and this run is a repair: fix every item on that list (the tester's defects, or a reviewer's findings), add a unit test for each defect where the logic allows it, rebuild, and skip the steps below that are already done.
 1. Create the project in this folder if it does not exist yet:
    - Flutter: `flutter create --org kr.toris --platforms android .` (on macOS Flutter is at `~/development/flutter/bin` when it is not on PATH). Follow the `flutter-apply-architecture-best-practices` skill.
    - Godot: a Godot 4 project (`project.godot`) with an Android export preset.

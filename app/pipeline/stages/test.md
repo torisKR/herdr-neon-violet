@@ -15,4 +15,8 @@
 6. Write `pipeline/test/report.md` (Korean): a table of checks with pass or fail and the screenshot, crash log excerpts, what you fixed.
 7. Shut down an emulator you booted and stop Gradle daemons.
 
-**result.json:** `{"status":"done","summary":"<n of m checks pass, report path>"}`. Use `"failed"` when a core-loop check still fails.
+**result.json:** `{"status":"done","summary":"<n of m checks pass, report path>"}`. Use `"failed"` when a core-loop check still fails, and then list what the developer must fix, one defect per line, each with the check it breaks and what you saw:
+```json
+{"status":"failed","summary":"<n of m checks pass, report path>","defects":["<check 3: tapping Start shows a black screen; logcat: NullPointerException in GameScene._ready>","..."]}
+```
+With `defects` the pipeline sends them to the developer and you test the new build again. Leave `defects` out when the failure is not in the app (no device, the build does not install): then the stage is simply tried again.

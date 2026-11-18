@@ -5,21 +5,22 @@ import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
-import { CAST, STAGES, advance, agentFor, autoPick, main, normalize, parseArgs, readFeed, readKey, reference, render, slug, terminalName, viaShell } from "../pipeline/nv-pipeline.mjs";
+import { CAST, STAGES, advance, agentFor, autoPick, main, normalize, parseArgs, readFeed, readKey, reference, render, shellQuote, shortTag, slug, terminalName, viaShell } from "../pipeline/nv-pipeline.mjs";
 
-const T = stage => terminalName("cat-cafe", stage);
+const T = stage => terminalName(shortTag("cat-cafe"), stage);
 
 const here = fileURLToPath(new URL("../pipeline", import.meta.url));
 const KEY = JSON.stringify({ type: "service_account", client_email: "ci@play.iam.gserviceaccount.com", private_key: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n", project_id: "p" });
 
 /** A machine where "agents" are a function: it gets the stage and returns what the agent would write. */
-function world({ agent = stage => ({ status: "done", summary: `${stage} ok` }), key = true } = {}) {
+function world({ agent = stage => ({ status: "done", summary: `${stage} ok` }), key = true, during = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), "nv-pipeline-"));
   const home = join(root, "home"), calls = [], live = new Map();
   mkdirSync(home, { recursive: true });
   writeFileSync(join(home, "settings.json"), JSON.stringify({ root: join(root, "projects"), agent: ["fake-agent"] }));
   if (key) { mkdirSync(join(home, "secrets")); writeFileSync(join(home, "secrets", "play-key.json"), KEY); }
   let clock = 0;
+  const seen = new Set();
   const sys = {
     home, here, self: "t-runner", platform: "win32", has: () => true, now: () => clock, sleep: async ms => { clock += ms; },
     hc(args) {
@@ -31,7 +32,11 @@ function world({ agent = stage => ({ status: "done", summary: `${stage} ok` }), 
         if (result && !result.silent) writeFileSync(join(dir, "pipeline", stage, "result.json"), JSON.stringify(result));
         return { code: 0, stdout: JSON.stringify({ address: name }), stderr: "" };
       }
-      if (args[0] === "get") return { code: 0, stdout: JSON.stringify(live.get(args[1]) ?? { state: "finished", exit_code: 0 }), stderr: "" };
+      if (args[0] === "get") {
+        const stage = String(args[1]).split("-").at(-1);
+        if (during && !seen.has(args[1])) { seen.add(args[1]); during(stage); }
+        return { code: 0, stdout: JSON.stringify(live.get(args[1]) ?? { state: "finished", exit_code: 0 }), stderr: "" };
+      }
       if (args[0] === "kill") live.delete(args[1]);
       return { code: 0, stdout: "", stderr: "" };
     },
@@ -290,7 +295,7 @@ test("settings can recast a stage and change how a model is started", () => {
 
 test("changing the mode while a stage runs is honored: production waits for approval", async () => {
   let w;
-  w = world({ agent: stage => { if (stage === "internal") main(w.sys, parseArgs(["mode", "cat-cafe", "promote"])); return team(stage); } });
+  w = world({ agent: team, during: stage => { if (stage === "internal") main(w.sys, parseArgs(["mode", "cat-cafe", "promote"])); } });
   await w.run("new", "Cat Cafe", "--mode", "auto");
   const state = await advance(w.sys, "cat-cafe");
   assert.equal(state.mode, "promote");
@@ -300,7 +305,7 @@ test("changing the mode while a stage runs is honored: production waits for appr
 
 test("a stop made while a stage runs wins: its result is not taken and nothing else starts", async () => {
   let w, stops = 0;
-  w = world({ agent: stage => { if (stage === "build" && stops++ === 0) main(w.sys, parseArgs(["stop", "cat-cafe"])); return team(stage); } });
+  w = world({ agent: team, during: stage => { if (stage === "build" && stops++ === 0) main(w.sys, parseArgs(["stop", "cat-cafe"])); } });
   await w.run("new", "Cat Cafe", "--mode", "auto");
   const state = await advance(w.sys, "cat-cafe");
   assert.equal(state.status, "stopped");
@@ -314,12 +319,25 @@ test("a stop made while a stage runs wins: its result is not taken and nothing e
 
 test("a second conductor for the same app is refused while one is running", async () => {
   let w, second;
-  w = world({ agent: stage => { if (stage === "research") second = advance(w.sys, "cat-cafe").then(() => "ran", e => e.message); return team(stage); } });
+  w = world({ agent: team, during: stage => { if (stage === "research") second = advance(w.sys, "cat-cafe").then(() => "ran", e => e.message); } });
   await w.run("new", "Cat Cafe", "--mode", "auto");
   const state = await advance(w.sys, "cat-cafe");
   assert.match(await second, /already running/);
   assert.equal(state.status, "done");
   assert.equal(w.calls.filter(c => c[0] === "run" && c.includes(T("release"))).length, 1);
+});
+
+test("running a stage again while the pipeline works discards what was in progress", async () => {
+  let w, once = 0;
+  w = world({ agent: team, during: stage => { if (stage === "internal" && once++ === 0) main(w.sys, parseArgs(["retry", "cat-cafe", "design"])); } });
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  const state = await advance(w.sys, "cat-cafe");
+  assert.equal(state.stages.internal.status, "pending");   // the old upload's result was not accepted
+  assert.equal(state.stages.design.status, "pending");
+  assert.ok(!w.calls.some(c => c[0] === "run" && c.includes(T("release"))));
+  const done = await advance(w.sys, "cat-cafe");
+  assert.equal(done.status, "done");
+  assert.equal(w.calls.filter(c => c[0] === "run" && c.includes(T("internal"))).length, 2);   // uploaded again after the rebuild
 });
 
 test("switching to unattended while a choice is pending takes the saved options without rerunning", async () => {
@@ -349,6 +367,19 @@ test("an agent that was waiting for the person is taken over, not started again"
   assert.deepEqual(state.gate, { kind: "approve", stage: "release" });
 });
 
+test("an agent that finished after being helped and then exited is not started again", async () => {
+  let stores = 0;
+  const w = world({ agent: stage => stage === "store" ? (stores++, { silent: true, hc: { state: "live", status: "blocked" } }) : team(stage) });
+  await w.run("new", "Cat Cafe", "--mode", "promote");
+  await advance(w.sys, "cat-cafe");
+  w.live.delete(T("store"));   // it wrote its result and its terminal is gone
+  writeFileSync(join(w.root, "projects", "cat-cafe", "pipeline", "store", "result.json"), JSON.stringify({ status: "done", summary: "store ok, then exited" }));
+  const state = await advance(w.sys, "cat-cafe");
+  assert.equal(stores, 1);
+  assert.equal(state.stages.store.summary, "store ok, then exited");
+  assert.deepEqual(state.gate, { kind: "approve", stage: "release" });
+});
+
 test("removing an app ends an agent that was waiting for the person", async () => {
   const w = world({ agent: stage => stage === "research" ? { silent: true, hc: { state: "live", status: "blocked" } } : team(stage) });
   await w.run("new", "Cat Cafe", "--mode", "auto");
@@ -359,11 +390,19 @@ test("removing an app ends an agent that was waiting for the person", async () =
   assert.deepEqual((await w.run("status")).apps, []);
 });
 
-test("terminal names fit hc's 32 characters and stay distinct for long, similar names", () => {
-  const a = terminalName("korean-language-flashcard-trainer", "research"), b = terminalName("korean-language-flashcard-trainer-2", "research");
-  assert.ok(a.length <= 32 && b.length <= 32, `${a} ${b}`);
+test("terminal names fit hc's 32 characters and two apps never share them", async () => {
+  const a = shortTag("korean-language-flashcard-an"), b = shortTag("korean-language-flashcard-c0", [a]);
   assert.notEqual(a, b);
-  assert.ok(a.endsWith("-research"));
+  assert.equal(shortTag("x", [shortTag("x")]), `${shortTag("x")}2`);   // a taken tag gets a suffix
+  for (const stage of STAGES) assert.ok(terminalName(b, stage.id).length <= 32);
+  const w = world({ agent: team });
+  const one = await w.run("new", "Cat Cafe"), two = await w.run("new", "Cat Cafe");
+  assert.notEqual(one.tag, two.tag);
+});
+
+test("the key path is one literal argument in the release commands", () => {
+  assert.equal(shellQuote("/tmp/Jane$(printf X)/it's.json", "darwin"), `'/tmp/Jane$(printf X)/it'\\''s.json'`);
+  assert.equal(shellQuote("C:\\Users\\O'Neil\\key.json", "win32"), `'C:\\Users\\O''Neil\\key.json'`);
 });
 
 test("the Play key is stored owner-only from the first byte", { skip: process.platform === "win32" }, async () => {
@@ -383,7 +422,8 @@ test("the listing upload can never reach production, and key paths are quoted", 
     assert.ok(/--track internal/.test(line), line.slice(0, 80));
   }
   assert.ok(internal.includes("--skip_upload_apk") && release.includes("--skip_upload_apk"));
-  assert.ok(!/--json_key \{\{key\}\}/.test(internal + release) && !/json_key:\{\{key\}\}/.test(internal + release));
+  assert.ok(!/\{\{key\}\}/.test((internal + release).replace(/Play service account key: `\{\{key\}\}`/g, "")), "commands use {{key_arg}}");
+  assert.ok(internal.includes("--json_key {{key_arg}}") && release.includes("json_key:{{key_arg}}"));
 });
 
 // ---- references

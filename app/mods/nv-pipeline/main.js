@@ -152,10 +152,9 @@ export default class Pipeline extends View {
 
   /** The conductor runs outside the window, in an hc terminal that ends when it has nothing to do. */
   async resume(id, dir = this.data.apps.find(a => a.id === id)?.dir) {
-    // hc names are at most 32 characters: a prefix of the id and a short hash of all of it.
-    let h = 0;
-    for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
-    const name = `pipe-${id.slice(0, 20)}-${h.toString(36).slice(-4).padStart(4, "0")}`;
+    // hc names are at most 32 characters; the app's saved tag is unique among the apps.
+    const tag = this.data.apps.find(a => a.id === id)?.state?.tag ?? id.slice(0, 20);
+    const name = `pipe-${tag}`;
     await exec("hc", ["kill", name]).catch(() => {});
     await exec("hc", ["rm", name]).catch(() => {});
     const r = await exec("hc", ["run", "--bg", "--json", "--no-notify", "--no-parent", "--rm", "--name", name, ...(dir ? ["--cwd", dir] : []), "--", ...this.viaShell(["node", this.tool(), "run", id])], { timeout: 20000 });

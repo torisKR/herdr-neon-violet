@@ -1047,3 +1047,63 @@ test("nv-web keeps text after -- literal, flags included", async () => {
   assert.equal(p.flags.submit, true);
   assert.equal(p.flags.json, false);
 });
+
+function board(overrides = {}, status = { key: { present: false }, stages: [], apps: [] }) {
+  const commands = [];
+  const h = harness("nv-pipeline", { window: () => ({ platform: "macos" }),
+    exec: async (command, args) => {
+      commands.push([command, ...args]);
+      if (command === "node" && args[1] === "status") return ok(status);
+      if (command === "node" && args[1] === "new") return ok({ id: "cat-cafe" });
+      if (command === "node" && args[1] === "key") return ok({ saved: true, email: "ci@x.iam.gserviceaccount.com" });
+      return ok({ address: "t9" });
+    }, ...overrides });
+  return { h, commands };
+}
+
+test("the + menu's Auto app opens the pipeline board with its form", () => {
+  const menu = harness("nv-new-menu");
+  find(menu.view.render(), "nv-auto-app").events.on_click({}, menu.cx);
+  assert.deepEqual(menu.calls[0], { name: "tab.new", args: { name: "Auto app", space: "s", mod: "nv-pipeline", props: { create: true } } });
+  const { h } = board({ props: () => ({ create: true }) });
+  assert.deepEqual(plain(h.view.form), { kind: "auto", mode: "promote" });
+  assert.ok(find(h.view.render(), "new-form"));
+  assert.ok(find(h.view.render(), "key-drop"), "the first run asks for the Play key");
+});
+
+test("Auto app starts a pipeline from a folder and a request, through a login shell on macOS", async () => {
+  const { h, commands } = board({ props: () => ({ create: true }) });
+  h.view.dirInput.set_value("/Users/me/projects/cat-cafe");
+  h.view.ideaInput.set_value("고양이 카페 방치형 게임");
+  h.view.form.mode = "auto";
+  h.view.create(h.cx); await h.settle();
+  const made = commands.find(c => c[0] === "node" && c[2] === "new");
+  assert.deepEqual(made.slice(3), ["cat-cafe", "--idea", "고양이 카페 방치형 게임", "--kind", "auto", "--mode", "auto", "--dir", "/Users/me/projects/cat-cafe", "--json"]);
+  const started = commands.find(c => c[0] === "hc" && c[1] === "run");
+  assert.deepEqual(started.slice(started.indexOf("--") + 1), ["/bin/sh", "-lc", 'exec "$@"', "sh", "node", "/local/herdr-app/bin/nv-pipeline.mjs", "run", "cat-cafe"]);
+  assert.equal(h.view.form, null);
+});
+
+test("the board asks for a request or a name before starting", async () => {
+  const { h, commands } = board({ props: () => ({ create: true }) });
+  h.view.create(h.cx); await h.settle();
+  assert.equal(commands.some(c => c[2] === "new"), false);
+  assert.ok(h.view.note);
+});
+
+test("clicking a design card chooses it and lets the pipeline continue; a dropped key is saved", async () => {
+  const state = { id: "cat-cafe", name: "Cat Cafe", mode: "review", status: "waiting", stage: "design", gate: { kind: "pick", stage: "design" },
+    stages: { design: { status: "waiting" } }, choice: {}, options: { design: [{ id: "a", title: "Pastel", desc: "soft", preview: "pipeline/preview/cat-cafe/design-a-1.png", recommended: true }, { id: "b", title: "Neon", desc: "bold" }] } };
+  const status = { key: { present: false }, stages: [{ id: "design", role: "Designer", ko: "디자이너" }], apps: [{ id: "cat-cafe", name: "Cat Cafe", dir: "/p/cat-cafe", state, feed: [{ at: new Date().toISOString(), from: "design", to: "person", kind: "ask", code: "ask.pick", text: "Please choose one." }] }] };
+  const { h, commands } = board({}, status);
+  h.view.data = status;
+  const tree = h.view.render();
+  assert.ok(find(tree, "stage-design") && find(tree, "team-chat") && find(tree, "option-a"));
+  find(tree, "option-b").events.on_click({}, h.cx); await h.settle();
+  assert.deepEqual(commands.find(c => c[2] === "pick").slice(2, 5), ["pick", "cat-cafe", "b"]);
+  assert.ok(commands.some(c => c[0] === "hc" && c[1] === "run" && c.at(-1) === "cat-cafe"));
+  h.view.dropKey(["/Users/me/Downloads/play.json"], h.cx); await h.settle();
+  assert.deepEqual(commands.find(c => c[2] === "key").slice(2, 5), ["key", "set", "/Users/me/Downloads/play.json"]);
+  h.view.dropKey(["/Users/me/Downloads/readme.txt"], h.cx);
+  assert.equal(commands.filter(c => c[2] === "key").length, 1);
+});

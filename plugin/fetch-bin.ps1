@@ -13,7 +13,14 @@ if (Get-Command cargo -ErrorAction SilentlyContinue) {
 }
 
 $asset = 'nv-x86_64-pc-windows-msvc.exe'
-$url = "https://github.com/torisKR/herdr-neon-violet/releases/latest/download/$asset"
+$url = "https://github.com/torisKR/herdr-toris-neon/releases/latest/download/$asset"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-Invoke-WebRequest -Uri $url -OutFile bin\nv.exe -UseBasicParsing
-"downloaded bin\nv.exe ($asset)"
+try {
+  Invoke-WebRequest -Uri $url -OutFile bin\nv.download -UseBasicParsing
+  Move-Item bin\nv.download bin\nv.exe -Force
+  "downloaded bin\nv.exe ($asset)"
+} catch {
+  Remove-Item bin\nv.download -ErrorAction SilentlyContinue
+  if (-not (Test-Path bin\nv.exe)) { throw }
+  Write-Warning "could not download a newer nv ($($_.Exception.Message)); keeping the one already here"
+}

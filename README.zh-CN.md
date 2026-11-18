@@ -1,197 +1,93 @@
-# herdr-neon-violet
+# herdr-toris-neon
 
 [English](README.md) · [한국어](README.ko.md) · **简体中文** · [日本語](README.ja.md) · [Français](README.fr.md)
 
-为 [herdr](https://herdr.dev)(面向 AI 编程代理的终端工作区)准备的霓虹紫主题和插件包。包含 **ALL agents** 面板、**Devices** 弹窗(adb、模拟器、iOS 模拟器)、**终端内浏览器**、通过 SSH 复制的设置,以及配套的终端配色。
+为 [Herdr](https://herdr.dev)(面向 AI 编程智能体的桌面应用和终端)准备的工作区扩展包。你可以在 Herdr 里看着一支智能体团队策划、开发、测试并发布应用:带像素风团队看板的应用流水线、智能体可以操作的真实浏览器、拉取请求、设备列表、用量,以及霓虹紫主题。
 
-![ALL agents board](docs/agents.png)
+![应用流水线:坐在工位上的团队成员,左侧是团队对话,右侧是可选的设计方案](docs/pipeline.png)
 
 ## 包含的内容
 
-| 功能 | 快捷键 | 说明 |
+| 功能 | 打开方式 | 作用 |
 | --- | --- | --- |
-| 霓虹紫主题 | | 整个 herdr 界面的配色,以及侧边栏里更详细的代理列表 |
-| ALL agents | `prefix` `a` | 把所有正在运行的代理平铺在一个标签页里 |
-| Devices | `prefix` `d` | 在一个列表里查看 adb 设备、Android 模拟器和 iOS 模拟器 |
-| 浏览器 | `prefix` `u` | 在终端里阅读网页,通过 SSH 也能用 |
-| 文件和拉取请求 | `prefix` `f` | 带预览的文件树,以及仓库的拉取请求:阅读、评论、合并 |
-| 切换代理 | `prefix` `,` / `prefix` `.` | 跳到上一个 / 下一个代理 |
-| 通过 SSH 复制 | 拖动 | 在远程窗格里拖选文字,文字会进入你本机的剪贴板 |
+| **Auto app** | + 菜单 → Auto app · `Ctrl/Cmd+Shift+Y` | 给出文件夹和想法,智能体团队会完成调研、策划、设计、开发、真机测试、商店素材准备,并通过 fastlane 发布。 |
+| **带 Inspect 的浏览器** | `Ctrl/Cmd+Shift+U` | Herdr 里的真实 Chrome/Edge。智能体操作各自的标签页;你点击元素、写下要改的内容,再发给智能体。 |
+| **ALL agents** | `Ctrl/Cmd+Shift+A` | 在一个画面里查看所有运行中智能体的终端。再按一次返回。 |
+| **拉取请求** | `Ctrl/Cmd+Shift+G` | 在终端旁边阅读、评论并合并仓库的 PR。 |
+| **设备** | `Ctrl/Cmd+Shift+D` | 列出本机和已连接机器上的 adb 设备(USB、Wi-Fi)、Android 模拟器和 iOS 模拟器。 |
+| **文件、编辑器、代码** | Files · `Ctrl/Cmd+Shift+H` | 文件树与编辑器、Markdown/HTML 预览、代码高亮。 |
+| **AI 用量** | + 菜单 → AI用量 | 跨多台机器查看 Claude 和 Codex 的令牌、预估费用和额度。 |
+| **粘贴截图** | `Ctrl+V` · `Cmd+V` | 剪贴板里的截图会作为图片进入 Claude Code 或 Codex,也能粘贴到另一台机器的终端。 |
+| **更新** | + 菜单 → 更新 | 从 GitHub 下载最新版本并安装,并在屏幕上显示进度。 |
+| **智能体技能** | 已为 Claude Code 和 Codex 安装 | `herdr-hc` 技能教智能体用 `hc` 编排、操作窗口和使用浏览器。 |
+| **霓虹紫主题** |  | 应用和终端 herdr 的配色,以及配套的终端配色方案。 |
 
-`prefix` 默认是 `ctrl+b`。
+## Auto app:从想法到商店
 
-## 截图
+- 在 + 菜单打开 **Auto app**,选择项目文件夹,写下要做什么;如果有参考(Play 商店链接、仓库、截图)也一并放入。
+- 九位成员依次工作:调研员、策划、设计师、美术、开发、测试、市场、发布经理、发布者。每位都是新启动的智能体,读一份任务、写一份结果,所以对话不会越积越多。
+- 各模型负责擅长的工作:Grok 调研,Codex 绘图,Claude 策划、开发和发布。缺失或失败的模型由 Claude 接替。
+- 可以选择询问的程度:**无人值守**、**仅发布前确认**(默认)、**每次选择都确认**。创意和设计方案以卡片显示,点击即可选择。
+- 应用用 Flutter 开发;游戏按类型使用 Godot 或 Unity + URP。发布先到 Play 内部测试轨道,再到正式版。
+- 参考只用于学习,绝不照搬:借鉴类型和核心循环,名称、美术和文案全部重新制作。
 
-**主界面。** 侧边栏下方按紧急程度列出代理:受阻、工作中、已完成、空闲。
+详情:[应用流水线](docs/PIPELINE.md)。
 
-![main](docs/main.png)
+## 浏览器:查看、指出、让它修好
 
-**Devices。** 已连接的设备,以及尚未启动的模拟器。按 `enter` 启动已停止的模拟器,按 `y` 复制设备 ID。
+![浏览器窗口:实时绘制的页面、地址栏,以及显示运行中智能体的 Inspect 面板](docs/browser-chrome.png)
 
-![devices](docs/devices.png)
+- 在装有图形运行时的 macOS 和 Linux 上使用 herdr-web-browser;其他情况和 Windows 上,用独立的配置文件操作已安装的 Chrome 或 Edge。
+- 智能体使用 `nv-web`:`open`、`snapshot`、`click`、`type`、`inspect`、`console --errors`、`network --failed`,以及先试一下样式修改的 `css`。
+- **Inspect** 会把你点击的元素(选择器、样式、开发构建中的源文件、带标记的截图)发给你选择的智能体。
 
-**浏览器。** 在右侧分屏打开,以文字形式显示页面。输入链接编号再按 `enter` 即可跳转。
+详情:[浏览器与文档预览](docs/BROWSER.md)。
 
-![browser](docs/browser.png)
+## 智能体、拉取请求和设备
 
-> 截图中的代理对话和设备列表来自 `demo/` 目录里的示例数据。
+![ALL agents 看板](docs/agents.png)
+
+![设备](docs/devices.png)
 
 ## 安装
 
-需要 herdr 0.9.5 或更高版本。所有工具是一个小的 Rust 可执行文件 `nv`:安装脚本在装有 Rust 时自行编译,否则下载预编译版本。拉取请求功能需要 GitHub CLI(`gh`)。
+需要 Herdr 桌面应用(或终端 herdr 0.9.5 及以上)、Node.js 22 及以上、Git。流水线使用你已安装的智能体 CLI(`claude`、`codex`、`grok`),发布使用 fastlane。拉取请求需要 GitHub CLI(`gh`)。
 
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/torisKR/herdr-neon-violet.git
-cd herdr-neon-violet
+git clone https://github.com/torisKR/herdr-toris-neon.git
+cd herdr-toris-neon
 ./install.sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/torisKR/herdr-neon-violet.git
-cd herdr-neon-violet
+git clone https://github.com/torisKR/herdr-toris-neon.git
+cd herdr-toris-neon
 .\install.ps1
 ```
 
-安装脚本做三件事:
+安装脚本会在修改前备份 herdr 配置和快捷键,然后安装主题、布局、模块和快捷键,不会替换你自己改过的快捷键。之后可以用 + 菜单的 **更新** 保持最新。
 
-1. 把现有的 herdr 配置备份为 `config.toml.bak-<日期>`,然后安装 `config/config.toml`。
-2. 把 `plugin/` 目录链接为 herdr 插件(`herdr plugin link`)。
-3. 安装终端配色(Ghostty 主题或 Windows Terminal 配色方案)。
+## 终端 herdr 插件
 
-如果只想用插件,可以直接从 GitHub 安装,再把 `config/config.toml` 里的 `[[keys.command]]` 部分复制到自己的配置中:
+同一个包也能在终端 herdr 中使用:`prefix a` ALL agents,`prefix d` 设备,`prefix u` 文本浏览器,`prefix f` 文件和拉取请求(`prefix` 是 `ctrl+b`)。在远程面板里拖选文字会复制到你自己的剪贴板。
 
 ```bash
-herdr plugin install torisKR/herdr-neon-violet/plugin
+herdr plugin install torisKR/herdr-toris-neon/plugin
 ```
 
-### 让终端配色保持一致
+## 已验证的环境
 
-herdr 窗格的背景使用外层终端的背景色,所以终端也要用同样的颜色,效果才会和截图一致。
-
-| 终端 | 文件 | 应用方法 |
-| --- | --- | --- |
-| Ghostty | `terminal/ghostty-neon-violet` | 复制到 `~/.config/ghostty/themes/neon-violet`,并在配置里加上 `theme = neon-violet` |
-| iTerm2 | `terminal/neon-violet.itermcolors` | Settings → Profiles → Colors → Color Presets → Import |
-| Windows Terminal | `terminal/windows-terminal.json` | 由 `install.ps1` 添加。重启终端后,在配置文件的配色方案里选择 "Neon Violet" |
-
-## Herdr 桌面应用
-
-面向 Herdr 桌面应用的同一套内容放在 `app/` 目录里。如果存在 `~/.config/herdr-app` 目录,安装脚本会把它复制进去,并把快捷键加入 `keys.json`,不会替换你已经在用的按键。
-
-| 组成 | 快捷键 | 说明 |
-| --- | --- | --- |
-| 主题 `neon-violet` | | 应用也使用同样的配色。在设置里选择,或运行 `herdr-app do app.theme --name neon-violet` |
-| 布局 `all-agents` | `ctrl+shift+a` | 把所有代理的实时终端排成一个网格,最紧急的在前。`ctrl+shift+l` 切换回其他布局 |
-| Devices | `ctrl+shift+d` | 本机以及所有已连接机器上的设备和模拟器。点击已停止的模拟器即可启动 |
-| 浏览器 | `ctrl+shift+u` | macOS/Linux 打开可交互的 Chromium，支持智能体操作；Windows 保留文本浏览器 |
-| 布局 `neon-violet` | `ctrl+shift+l` | 带窗口模糊和半透明效果的主布局 |
-| Pull requests | `ctrl+shift+g` | 当前仓库的未合并拉取请求:说明、改动文件、评论。可在面板里评论和合并 |
-| 代码高亮 | `ctrl+shift+h` | 粘贴代码,查看语法颜色、行号和折叠 |
-| 快捷键列表 | `ctrl+shift+k` | 搜索当前按键绑定、操作和上下文 |
-
-在 `neon-violet` 布局中,右上角的 `+` 按钮也会列出这些工具(ALL agents、Devices、代码高亮、快捷键列表、Pull requests、Browser)。在 Files 面板里点击文件,会在主区域以编辑器标签页打开:语法高亮、行号、折叠、可编辑并用 `ctrl+s` 保存,Markdown 可渲染预览。其他机器上的文件以只读方式打开。Mermaid 图表显示为源码,不会绘制。
-
-在 macOS 上,这套内容的所有快捷键都用 `cmd` 代替 `ctrl`。如果 `cmd+shift+d` 已被占用(用于拆分窗格),Devices 使用 `cmd+shift+m`。
-
-在 `all-agents` 布局中:
-
-- 点击顶部的筛选按钮,或用 `ctrl+d` 已完成、`ctrl+w` 工作中、`ctrl+i` 空闲、`ctrl+b` 受阻、`ctrl+a` 全部,按状态筛选。
-- 这个布局显示时,这五个按键归筛选使用,不会传给终端里的程序。
-- 点击卡片标题栏可打开对应代理,点击“Back to Herdr”可离开面板。从 `+` 菜单进入时,两者都会返回原来的布局,保留菜单工具。直接进入时,若已安装 Neon Violet,则返回该布局。
-
-这是深色主题。如果应用被设置为始终使用浅色外观,需要在设置里改成深色,主题才会显示。在应用里拖选文字本来就会复制,远程机器上的终端也一样。
-
-## 通过 SSH 拖动复制
-
-配置里设置了 `copy_on_select = true`,所以在 herdr 里拖选文字就会复制。连接到远程机器时,文字会去哪里取决于连接方式。
-
-- **用 `herdr --remote <主机>` 或已保存的机器连接。** 负责绘制界面的 herdr 运行在你自己的电脑上,文字会直接进入你的剪贴板,不需要额外设置。
-- **先用 `ssh` 登录,再在里面运行 `herdr`。** herdr 通过名为 OSC 52 的终端转义序列发送文字,由你的终端写入剪贴板。终端必须允许这个操作。
-  - iTerm2:Settings → General → Selection → 打开 "Applications in terminal may access clipboard"
-  - Ghostty:`clipboard-write = allow`
-  - macOS 自带的 Terminal.app 不支持 OSC 52,请改用上面的 `herdr --remote` 方式。
-
-## ALL agents
-
-`prefix` `a` 打开 "ALL agents" 标签页;如果已经打开,就切换过去。
-
-- 每个代理一张卡片,最近的输出每 1.5 秒刷新一次。
-- 按紧急程度排序:BLOCKED、WORKING、DONE、IDLE。
-- 按状态筛选:`ctrl+d` 已完成、`ctrl+w` 工作中、`ctrl+i` 空闲、`ctrl+a` 全部。单独按字母 `d`、`w`、`i`、`a` 也可以,`b` 显示受阻的代理。
-- 按 `1`–`9` 跳到对应代理的窗格,按 `q` 关闭。
-- 面板只显示它所在的 herdr 服务器上的代理。其他机器上的代理请在侧边栏查看。
-
-## 文件和拉取请求
-
-`prefix` `f` 会打开一个标签页,以你刚才所在窗格的目录为根。支持鼠标:点击某一行,两侧可分别滚动。
-
-| 按键 | 文件 | 拉取请求 |
-| --- | --- | --- |
-| `↑` `↓` / `j` `k` | 移动 | 移动 |
-| `enter` 或点击 | 打开文件、展开目录 | 打开拉取请求 |
-| `←` | 折叠,或回到上级目录 | |
-| `space` / `b` | 滚动预览 | 滚动内容 |
-| `c` | | 写评论 |
-| `m` | | 合并。会先询问:`y` 合并,`s` 在 squash、merge、rebase 之间切换 |
-| `o` | | 在 GitHub 上打开 |
-| `y` | 复制路径 | |
-| `tab` | 切换到拉取请求 | 切换到文件 |
-
-Herdr 桌面应用本身已有文件浏览器(右上角的 Files 按钮),所以这里只为应用增加了拉取请求面板。
-
-## 代码高亮和快捷键
-
-从 `+` 选择 **代码高亮**,或按 `ctrl+shift+h`。粘贴代码并选择语法,可使用颜色高亮、行号和代码折叠。可切换高亮和自动换行,草稿保存在本机。
-
-从 `+` 选择 **快捷键列表**,或按 `ctrl+shift+k`,查看包含自定义设置的当前 Herdr 按键绑定。支持按键、操作和上下文搜索。macOS 使用 `cmd` 代替 `ctrl`。
-
-两个工具和 `+` 菜单支持英语、日语、简体中文和韩语。在工具底部选择语言,或用“跟随 Herdr”读取应用的 `language`/`locale` 设置。
-
-## Devices
-
-用 `prefix` `d` 打开。它在窗格所在的机器上读取以下信息:
-
-- `adb devices -l`:已连接的 Android 设备和正在运行的模拟器(含 Android 版本)
-- `emulator -list-avds`:尚未启动的模拟器
-- 在 macOS 上,`xcrun simctl` 和 `xcrun xctrace`:iOS 模拟器以及已连接的 iPhone 和 iPad
-
-`adb` 和 `emulator` 会在 `PATH`、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 以及 Android Studio 的默认位置(如 `~/Library/Android/sdk`)中查找。
-
-## 浏览器
-
-用 `prefix` `u` 打开,然后输入网址或搜索词。搜索词会交给 DuckDuckGo。
-
-| 按键 | 操作 |
-| --- | --- |
-| `j` / `k`、方向键 | 滚动 |
-| `space` / `b` | 向下 / 向上翻一屏 |
-| 数字 + `enter` | 打开对应编号的链接 |
-| `u` 或 `/` | 输入新的网址或搜索词 |
-| `h` | 后退 |
-| `y` | 把当前网址复制到你的剪贴板 |
-| `o` | 用窗格所在机器的默认浏览器打开 |
-| `q` | 关闭 |
-
-这是一个文字浏览器,由 JavaScript 渲染的页面可能显示为空。它适合阅读文档和查看开发服务器的返回内容。
-
-在窗格里按住 `ctrl` 点击 `http://localhost:<端口>` 链接,会用这个浏览器打开。远程机器上的开发服务器在那台机器上,而不在你笔记本的 localhost 上。其他链接仍按 herdr 的默认行为在你自己的浏览器里打开。
-
-## 测试环境
-
-- Windows 11、herdr 0.9.5、nv 0.2(Rust):已实际运行并检查主题和三个窗格(ALL agents、Devices、浏览器)。
-- Windows 11 上的 Herdr 桌面应用:已在应用中运行主题、`all-agents` 布局及其筛选、Devices。Devices 列出了一台已连接 Mac 上真实的 Android 设备、模拟器和 iOS 模拟器。
-- 终端插件的 Devices 窗格用 `demo/fixtures` 里的示例输出检查过;同样的命令在真实的 Mac 上返回相同的格式。这套内容还没有在 macOS 上直接安装过。如有问题,欢迎提交 issue。
+- Windows 11 上的 Herdr 桌面应用:以上功能都在应用中运行过。流水线用替身智能体跑完了全程,第一阶段在 macOS 上用真实智能体运行过。
+- macOS:运行了流水线第一阶段、粘贴截图(本机以及粘贴到 Windows 终端)和安装脚本的各个部分。流水线的后续阶段和商店上传尚未实际运行。
 
 ## 致谢
 
-配色的灵感来自 VS Code 主题 Cyber Purple 77 的截图,并针对 herdr 的颜色标记重新挑选。
+配色的灵感来自 VS Code 的 Cyber Purple 77 主题截图,并针对 herdr 的颜色标记重新挑选。macOS/Linux 上的图形浏览器是 [herdr-web-browser](https://github.com/MattJColes/herdr-web-browser)(MIT)。
 
 ## 许可证
 
 MIT
-
-Graphical browser setup, agent controls, `.env` highlighting and Markdown/HTML previews: [Browser and document previews](docs/BROWSER.md).

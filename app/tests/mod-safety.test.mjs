@@ -1122,3 +1122,46 @@ test("references typed or dropped on the Auto app form are passed to the pipelin
   const refs = made.filter((_a, i) => made[i - 1] === "--ref");
   assert.deepEqual(refs, ["https://play.google.com/store/apps/details?id=a.b", "https://github.com/x/y", "/Users/me/Desktop/shot1.png"]);
 });
+
+test("the + menu's Update opens the update window, which starts pull and install in a terminal it then follows", async () => {
+  const menu = harness("nv-new-menu");
+  find(menu.view.render(), "nv-update").events.on_click({}, menu.cx);
+  assert.equal(menu.overlays[0].mod, "nv-update");
+
+  const commands = [];
+  const h = harness("nv-update", { checking: () => false, window: () => ({ platform: "windows" }), props: () => ({ overlay: "o" }),
+    readTextFile: async () => JSON.stringify({ repo: "C:/packs/herdr-toris-neon" }),
+    exec: async (command, args) => {
+      commands.push([command, ...args]);
+      if (command === "git" && args.includes("status")) return ok("## feat/x...origin/feat/x\n");
+      if (command === "git" && args.includes("rev-list")) return ok("2\n");
+      if (command === "git" && args.includes("get-url")) return ok("https://github.com/torisKR/herdr-toris-neon.git\n");
+      if (command === "git" && args.includes("log")) return ok("abc1234 feat: one\ndef5678 fix: two\n");
+      return ok(command === "hc" ? { address: "t77" } : "");
+    } });
+  await h.settle();
+  assert.equal(h.view.info.behind, 2);
+  assert.deepEqual(plain(h.view.info.commits), ["feat: one", "fix: two"]);
+  h.view.start(h.cx); await h.settle();
+  const run = commands.find(c => c[0] === "hc" && c[1] === "run");
+  const script = run.at(-1);
+  assert.equal(h.view.info.remote, "torisKR/herdr-toris-neon");
+  assert.ok(commands.some(c => c[0] === "git" && c.slice(3).join(" ") === "fetch --quiet origin main"), "checks GitHub's main, not the last fetch");
+  const order = ["::step pull", "fetch origin main", "checkout main", "merge --ff-only origin/main", "::step install", "install.ps1", "::step done"].map(x => script.indexOf(x));
+  assert.ok(order.every((at, n) => at >= 0 && (n === 0 || at > order[n - 1])), script);
+  assert.ok(script.includes(String.raw`C:\packs\herdr-toris-neon\install.ps1`));
+  assert.deepEqual(plain(h.overlays[0].layout.children.map(c => c.content)), [{ mod: "nv-update", props: { terminal: "t77", repo: "C:/packs/herdr-toris-neon" } }, { terminal: "t77" }]);
+});
+
+test("the update window follows the terminal's step markers, including a failure", async () => {
+  let screen = "::step pull\nAlready up to date.\n::step install\n";
+  const h = harness("nv-update", { checking: () => false, props: () => ({ terminal: "t77", repo: "/p" }), exec: async () => ok(screen) });
+  await h.settle();
+  assert.deepEqual(plain(h.view.state), { step: "install", failed: false });
+  screen += "boom\n::failed install\n";
+  h.view.follow(h.cx); await h.settle();
+  assert.deepEqual(plain(h.view.state), { step: "install", failed: true });
+  screen = "::step pull\n::step install\n::step done\n";
+  h.view.follow(h.cx); await h.settle();
+  assert.equal(h.view.state.step, "done");
+});

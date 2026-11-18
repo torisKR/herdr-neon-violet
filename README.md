@@ -1,198 +1,93 @@
-# herdr-neon-violet
+# herdr-toris-neon
 
 **English** · [한국어](README.ko.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Français](README.fr.md)
 
-A neon-violet theme and plugin pack for [herdr](https://herdr.dev), the terminal workspace for AI coding agents. It adds an **ALL agents** board, a **Devices** popup (adb, emulators, iOS simulators), an **in-terminal browser**, clipboard-over-SSH settings, and matching terminal color schemes.
+A workspace pack for [Herdr](https://herdr.dev), the desktop app and terminal for AI coding agents. It turns Herdr into a place where a team of agents plans, builds, tests and ships an app while you watch: an app pipeline with a pixel-art team board, a real browser agents can drive, pull requests, devices, usage, and a neon violet look.
+
+![The app pipeline: every teammate at a desk, their chat on the left, design options to pick on the right](docs/pipeline.png)
+
+## What is inside
+
+| Feature | Open it | What it does |
+| --- | --- | --- |
+| **Auto app** | + menu → Auto app · `Ctrl/Cmd+Shift+Y` | Give it a folder and an idea. A team of agents researches, plans, designs, builds, tests on a device, prepares the store listing and releases through fastlane. |
+| **Browser with Inspect** | `Ctrl/Cmd+Shift+U` | A real Chrome/Edge inside Herdr. Agents drive their own tabs; you click an element, say what to change, and send it to an agent. |
+| **ALL agents** | `Ctrl/Cmd+Shift+A` | Every running agent's live terminal on one screen. Press again to go back. |
+| **Pull requests** | `Ctrl/Cmd+Shift+G` | Read, comment on and merge the repository's pull requests beside your terminal. |
+| **Devices** | `Ctrl/Cmd+Shift+D` | adb devices (USB and Wi-Fi), Android emulators and iOS simulators, on this computer and connected ones. |
+| **Files, editor, code** | Files · `Ctrl/Cmd+Shift+H` | A file tree with an editor, Markdown/HTML preview and syntax highlighting. |
+| **AI usage** | + menu → AI usage | Tokens, cost estimates and limits for Claude and Codex across your machines. |
+| **Screenshot paste** | `Ctrl+V` · `Cmd+V` | A screenshot on the clipboard goes to Claude Code or Codex as an image, also into terminals on another machine. |
+| **Update** | + menu → Update | Downloads the newest version from GitHub and installs it, with the progress on screen. |
+| **Agent skill** | installed for Claude Code and Codex | `herdr-hc` teaches agents to orchestrate with `hc`, change the window and use the browser. |
+| **Neon violet theme** |  | Colors for the app, the terminal herdr and matching terminal schemes. |
+
+## Auto app: from an idea to the store
+
+- Open **Auto app** from the + menu, choose a project folder, describe what to build, and add references if you have them (Play Store links, repositories, screenshots).
+- Nine teammates take turns: Researcher, Planner, Designer, Artist, Developer, Tester, Marketer, Release manager, Publisher. Each is a fresh agent that reads one task and writes one result, so nothing piles up in a conversation.
+- Different models do what they are good at: Grok researches, Codex draws, Claude plans, builds and releases. A model that is missing or fails is replaced by Claude.
+- Choose how much it asks you: **unattended**, **ask before production** (default), or **ask at every choice**. Ideas and designs appear as cards to click.
+- Apps are built with Flutter; games with Godot or Unity + URP depending on the genre. Releases go to the Play internal track first, then production.
+- References are studied, never copied: the genre and the loop are taken, the name, art and text are new.
+
+Details: [App pipeline](docs/PIPELINE.md).
+
+## Browser: look at a page, point, and have it fixed
+
+![The Browser window: the page drawn live, the address bar, and the Inspect panel with running agents](docs/browser-chrome.png)
+
+- On macOS and Linux with the graphical runtime it uses herdr-web-browser; everywhere else, and on Windows, it drives your installed Chrome or Edge with a separate profile.
+- Agents use `nv-web`: `open`, `snapshot`, `click`, `type`, `inspect`, `console --errors`, `network --failed`, `css` to try a fix live.
+- **Inspect** sends the element you clicked (selector, styles, source file in dev builds, an outlined screenshot) to the agent you choose.
+
+Details: [Browser and document previews](docs/BROWSER.md).
+
+## Agents, pull requests and devices
 
 ![ALL agents board](docs/agents.png)
 
-## What you get
-
-| Feature | Key | What it does |
-| --- | --- | --- |
-| Neon violet theme | | Colors for the whole herdr UI and a richer agent list in the sidebar |
-| ALL agents | `prefix` `a` | Every running agent tiled in one tab |
-| Devices | `prefix` `d` | adb devices, Android emulators, and iOS simulators in one list |
-| Browser | `prefix` `u` | Read web pages inside the terminal, including over SSH |
-| Files and pull requests | `prefix` `f` | A file tree with a preview, and the repository's pull requests: read, comment, merge |
-| Agent switching | `prefix` `,` / `prefix` `.` | Jump to the previous / next agent |
-| Copy over SSH | drag | Drag text in a remote pane and it lands on your own clipboard |
-
-`prefix` is `ctrl+b` by default.
-
-## Screenshots
-
-**Main view.** The lower sidebar lists agents by urgency: blocked, working, done, idle.
-
-![main](docs/main.png)
-
-**Devices.** Connected devices plus the emulators and simulators that are not running yet. Press `enter` to boot a stopped one and `y` to copy a device ID.
-
-![devices](docs/devices.png)
-
-**Browser.** Opens in a split on the right and renders the page as text. Type a link number and press `enter` to follow it.
-
-![browser](docs/browser.png)
-
-> The agent transcripts and the device list in these screenshots come from sample data in `demo/`.
+![Devices](docs/devices.png)
 
 ## Install
 
-Requires herdr 0.9.5 or later. The tools are one small Rust binary, `nv`: the installer builds it when Rust is installed and downloads a prebuilt one otherwise. Pull requests need the GitHub CLI (`gh`).
+Requires the Herdr desktop app (and/or terminal herdr 0.9.5+), Node.js 22+, Git. The pipeline uses the agent CLIs you have (`claude`, `codex`, `grok`), and fastlane for releases. Pull requests need the GitHub CLI (`gh`).
 
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/torisKR/herdr-neon-violet.git
-cd herdr-neon-violet
+git clone https://github.com/torisKR/herdr-toris-neon.git
+cd herdr-toris-neon
 ./install.sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/torisKR/herdr-neon-violet.git
-cd herdr-neon-violet
+git clone https://github.com/torisKR/herdr-toris-neon.git
+cd herdr-toris-neon
 .\install.ps1
 ```
 
-The installer does three things:
+The installer backs up your herdr config and keys before changing them, installs the theme, layouts, mods and shortcuts, and never replaces a shortcut you changed yourself. Afterwards, **Update** in the + menu keeps it current.
 
-1. Backs up your current herdr config to `config.toml.bak-<date>` and installs `config/config.toml`.
-2. Links the `plugin/` folder as a herdr plugin (`herdr plugin link`).
-3. Installs a terminal color scheme (Ghostty theme or Windows Terminal scheme).
+## Terminal herdr plugin
 
-To use only the plugin, install it straight from GitHub and copy the `[[keys.command]]` blocks from `config/config.toml` into your own config:
+The same pack works in terminal herdr: `prefix a` ALL agents, `prefix d` Devices, `prefix u` text browser, `prefix f` files and pull requests (`prefix` is `ctrl+b`). Dragging text in a remote pane copies it to your own clipboard.
 
 ```bash
-herdr plugin install torisKR/herdr-neon-violet/plugin
+herdr plugin install torisKR/herdr-toris-neon/plugin
 ```
-
-### Match your terminal colors
-
-herdr panes use the background color of the terminal that hosts them, so the terminal needs the same colors to look like the screenshots.
-
-| Terminal | File | How to apply |
-| --- | --- | --- |
-| Ghostty | `terminal/ghostty-neon-violet` | Copy to `~/.config/ghostty/themes/neon-violet` and add `theme = neon-violet` to your config |
-| iTerm2 | `terminal/neon-violet.itermcolors` | Settings → Profiles → Colors → Color Presets → Import |
-| Windows Terminal | `terminal/windows-terminal.json` | `install.ps1` adds it. Restart the terminal and pick "Neon Violet" as the profile's color scheme |
-
-## Herdr desktop app
-
-The same pack for the Herdr desktop app is in `app/`. The installers copy it into `~/.config/herdr-app` when that folder exists, and add the shortcuts to `keys.json` without replacing keys you already use.
-
-| Piece | Key | What it does |
-| --- | --- | --- |
-| Theme `neon-violet` | | The same colors for the app. Pick it in Settings, or run `herdr-app do app.theme --name neon-violet` |
-| Layout `all-agents` | `ctrl+shift+a` | Every agent's live terminal in one grid, most urgent first. `ctrl+shift+l` switches layouts back |
-| Devices | `ctrl+shift+d` | Devices, emulators and simulators of this computer and of every connected machine. Click a stopped one to boot it |
-| Browser | `ctrl+shift+u` | Opens interactive Chromium on macOS/Linux (mouse, keyboard and agent automation); Windows keeps the text reader |
-| Layout `neon-violet` | `ctrl+shift+l` | The main layout with a blurred, translucent window |
-| Pull requests | `ctrl+shift+g` | Open pull requests of the repository you are in: description, changed files, comments. Comment and merge from the panel |
-| Code highlighting | `ctrl+shift+h` | Paste code and view syntax colors, line numbers and folding |
-| Keyboard shortcuts | `ctrl+shift+k` | Search current bindings, actions and contexts |
-| AI usage | `+` → AI usage | Tokens, model costs and account limits for this computer and connected machines; [details](docs/AI-USAGE.md) |
-
-In the `neon-violet` layout the `+` button at the top right also lists these tools (ALL agents, Devices, Code highlighting, Keyboard shortcuts, Pull requests, Browser), and a file clicked in the Files panel opens in the main area as an editor tab: syntax highlighting, line numbers, folding, editing with `ctrl+s` to save, and a rendered preview for Markdown. Files on another machine open read-only. Mermaid diagrams are shown as source, not drawn.
-
-On macOS every shortcut of this pack uses `cmd` where this page says `ctrl`. Where `cmd+shift+d` is already taken (it splits the pane), Devices is on `cmd+shift+m`.
-
-In the `all-agents` layout:
-
-- Filter by state with the chips at the top or with `ctrl+d` done, `ctrl+w` working, `ctrl+i` idle, `ctrl+b` blocked, `ctrl+a` all.
-- While this layout is on screen those five keys belong to the filter and do not reach the program in the terminal.
-- Click a card's header to open that agent, or “Back to Herdr” to leave the board. When opened from the `+` menu, both return to the layout you came from, keeping its menu tools. Direct entry defaults to Neon Violet when installed.
-
-The theme is dark. If the app is set to always use the light appearance, switch it to dark in Settings for the theme to show. Dragging over text already copies in the app, on remote machines too.
-
-## Copying over SSH by dragging
-
-The config sets `copy_on_select = true`, so dragging over text in herdr copies it. Where the text ends up when you are on a remote machine depends on how you connected.
-
-- **Connected with `herdr --remote <host>` or a saved machine.** The herdr that draws the screen runs on your own computer, so the text goes straight to your clipboard. Nothing to set up.
-- **Connected with `ssh`, then ran `herdr` inside it.** herdr sends the text with a terminal escape sequence called OSC 52, and your terminal puts it on the clipboard. The terminal has to allow that.
-  - iTerm2: Settings → General → Selection → turn on "Applications in terminal may access clipboard"
-  - Ghostty: `clipboard-write = allow`
-  - The built-in macOS Terminal.app does not support OSC 52. Use the `herdr --remote` route above.
-
-## ALL agents
-
-`prefix` `a` opens the "ALL agents" tab, or switches to it if it is already open.
-
-- One card per agent, with its recent output refreshed every 1.5 seconds.
-- Sorted by urgency: BLOCKED, WORKING, DONE, IDLE.
-- Filter by state: `ctrl+d` done, `ctrl+w` working, `ctrl+i` idle, `ctrl+a` all. The plain letters `d`, `w`, `i`, `a` work too, and `b` shows blocked agents.
-- Press `1`–`9` to jump to that agent's pane. Press `q` to close.
-- The board shows the agents of the herdr server it runs on. Agents on other machines appear in the sidebar.
-
-## Files and pull requests
-
-`prefix` `f` opens a tab rooted at the folder of the pane you were in. The mouse works: click a row, scroll either side.
-
-| Key | Files | Pull requests |
-| --- | --- | --- |
-| `↑` `↓` / `j` `k` | Move | Move |
-| `enter` or click | Open a file, expand a folder | Open the pull request |
-| `←` | Collapse, or go to the parent folder | |
-| `space` / `b` | Scroll the preview | Scroll the pull request |
-| `c` | | Write a comment |
-| `m` | | Merge. It asks first: `y` merges, `s` switches between squash, merge and rebase |
-| `o` | | Open on GitHub |
-| `y` | Copy the path | |
-| `tab` | Switch to pull requests | Switch to files |
-
-The Herdr desktop app already has a file explorer (the Files button at the top right), so this pack adds only the pull request panel there.
-
-## Code highlighting and keyboard shortcuts
-
-Open **Code highlighting** from `+` or with `ctrl+shift+h`. Paste code, choose its syntax, toggle highlighting or line wrapping, and use line numbers and folding. The draft is saved on this computer.
-
-Open **Keyboard shortcuts** from `+` or with `ctrl+shift+k`. It reads the current Herdr bindings, including custom keys, and searches by key, action or context. On macOS these two shortcuts use `cmd` instead of `ctrl`.
-
-Both tools and the `+` menu support English, Japanese, Simplified Chinese and Korean. Use “Follow Herdr” for the app's `language`/`locale`, or select a language at the bottom of either tool.
-
-## Devices
-
-`prefix` `d` opens it. It reads the following on the machine where the pane runs:
-
-- `adb devices -l`: connected Android devices and running emulators, with the Android version
-- `emulator -list-avds`: emulators that are not running yet
-- On macOS, `xcrun simctl` and `xcrun xctrace`: iOS simulators and connected iPhones and iPads
-
-`adb` and `emulator` are looked up on `PATH`, in `ANDROID_HOME` and `ANDROID_SDK_ROOT`, and in the default Android Studio locations such as `~/Library/Android/sdk`.
-
-## Browser
-
-`prefix` `u` opens it. Type an address or a search query. Queries go to DuckDuckGo.
-
-| Key | Action |
-| --- | --- |
-| `j` / `k`, arrow keys | Scroll |
-| `space` / `b` | Page down / up |
-| number + `enter` | Follow the link with that number |
-| `u` or `/` | Enter a new address or query |
-| `h` | Back |
-| `y` | Copy the current address to your clipboard |
-| `o` | Open in the default browser of the machine the pane runs on |
-| `q` | Close |
-
-This is a text browser, so pages drawn by JavaScript can look empty. It suits reading docs and checking what a dev server returns.
-
-`ctrl`+click on a `http://localhost:<port>` link in a pane opens it in this browser. A dev server on a remote machine lives on that machine, not on your laptop's localhost. Other links open in your own browser, as herdr does by default.
 
 ## Tested on
 
-- Windows 11, herdr 0.9.5, nv 0.2 (Rust): the theme and the three panes (ALL agents, Devices, Browser) were run and checked.
-- Herdr desktop app on Windows 11: the theme, the `all-agents` layout with its filters, and Devices were run in the app. Devices listed real Android devices, emulators and iOS simulators from a connected Mac.
-- The terminal plugin's Devices pane was checked against the sample output in `demo/fixtures`; the same commands return that format on a real Mac. The pack has not been installed on macOS itself yet. Please open an issue if something is off.
+- Windows 11 with the Herdr desktop app: all features above were run in the app; the pipeline was run end to end with a stand-in agent and its first stage with a real one on macOS.
+- macOS: the pipeline's first stage, screenshot paste (local and into a Windows terminal) and the installer's pieces were run. The later pipeline stages and store uploads have not been run for real yet.
 
 ## Credits
 
-The colors were inspired by a screenshot of the Cyber Purple 77 theme for VS Code and picked anew for herdr's color tokens.
+The colors were inspired by a screenshot of the Cyber Purple 77 theme for VS Code and picked anew for herdr's color tokens. The graphical browser on macOS/Linux is [herdr-web-browser](https://github.com/MattJColes/herdr-web-browser) (MIT).
 
 ## License
 
 MIT
-
-Graphical browser setup, agent controls, `.env` highlighting and Markdown/HTML previews: [Browser and document previews](docs/BROWSER.md).

@@ -1,4 +1,4 @@
-# herdr-neon-violet installer for Windows.
+# herdr-toris-neon installer for Windows.
 # Installs what applies to this machine: the terminal herdr config and plugin when `herdr`
 # is installed, and the theme, layouts, mods and shortcuts when the Herdr desktop app is.
 $ErrorActionPreference = 'Stop'
@@ -63,8 +63,10 @@ if (Test-Path $app) {
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs','nv-paste','nv-pipeline') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs','nv-paste','nv-pipeline','nv-update') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
+  # Where this pack lives, so Update in the + menu can pull and install again.
+  [IO.File]::WriteAllText((Join-Path $app 'nv-pack.json'), (@{ repo = $here } | ConvertTo-Json -Compress))
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Warning 'Browser (Ctrl+Shift+U) needs Node.js 22+ and Chrome or Edge.' }
   # Agent skill: how Claude Code / Codex drive Herdr, hc and the browser (only where those agents are set up).
   foreach ($skills in (Join-Path $env:USERPROFILE '.claude\skills'), (Join-Path $env:USERPROFILE '.agents\skills')) {

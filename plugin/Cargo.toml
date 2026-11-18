@@ -5,7 +5,7 @@ edition = "2021"
 rust-version = "1.89"
 description = "neon-violet tools for herdr: ALL agents board, devices, text browser, file explorer and pull requests"
 license = "MIT"
-repository = "https://github.com/torisKR/herdr-neon-violet"
+repository = "https://github.com/torisKR/herdr-toris-neon"
 
 [dependencies]
 crossterm = "0.28"

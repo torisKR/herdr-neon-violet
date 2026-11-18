@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# herdr-neon-violet installer for macOS / Linux.
+# herdr-toris-neon installer for macOS / Linux.
 # Installs what applies to this machine: the terminal herdr config and plugin when `herdr`
 # is installed, and the theme, layouts, mods and shortcuts when the Herdr desktop app is.
 set -eu
@@ -51,8 +51,10 @@ if [ -d "$app" ]; then
   cp "$here/app/usage/nv-usage.mjs" "$app/bin/nv-usage.mjs"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
-  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$here/app/mods/nv-paste" "$here/app/mods/nv-pipeline" "$app/mods/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$here/app/mods/nv-paste" "$here/app/mods/nv-pipeline" "$here/app/mods/nv-update" "$app/mods/"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
+  # Where this pack lives, so Update in the + menu can pull and install again.
+  printf '{"repo": "%s"}\n' "$(printf %s "$here" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$app/nv-pack.json"
   # Browser setup is optional; a missing toolchain/download must not interrupt the pack migration.
   if command -v cargo >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
     if ! sh "$here/scripts/install-browser.sh"; then

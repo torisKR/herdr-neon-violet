@@ -25,6 +25,6 @@ case "$os-$arch" in
     ;;
 esac
 
-curl -fsSL "https://github.com/torisKR/herdr-neon-violet/releases/latest/download/$asset" -o bin/nv
+curl -fsSL "https://github.com/torisKR/herdr-toris-neon/releases/latest/download/$asset" -o bin/nv
 chmod +x bin/nv
 echo "downloaded bin/nv ($asset)"

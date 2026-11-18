@@ -19,6 +19,7 @@
    | Realistic 3D horror or action for PC | Unreal: out of scope for this mobile pipeline, report `blocked` |
 
 2. Write `pipeline/brief/brief.md` (Korean, one page): who it is for and the reference, the core loop in five steps, the **first-version scope** as a checklist of at most 8 items, what is explicitly **out** of scope, the screens, monetization, the share moment, and **kill criteria** (when we stop).
+   When references were given, end the brief with a section on how ours differs: for each reference, what we share with it (only genre and loop) and what is different (name, theme, art, features). The store title must not resemble theirs.
 3. Write `pipeline/brief/acceptance.md`: 5 to 10 checks the tester will run on a device, each one something a person can see ("tap Start, the first level appears within 2 seconds").
 4. Choose the Android application id (`kr.toris.<name>`, lowercase letters and digits only) and the store title.
 

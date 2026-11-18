@@ -11,10 +11,15 @@ import { h_flex, v_flex, InputState, Input } from "gpui-base";
 import { appHome, checking, exec, pickFolder, props, run, settings, shared, setShared, theme, window } from "herdr";
 
 const POLL_MS = 2000;
+// The person's login shell (as in bin/nv-pipeline.mjs): $SHELL when POSIX-style, else zsh on macOS, bash, sh.
+const LOGIN = 's="${SHELL:-}"; case "$s" in */zsh|*/bash|*/sh|*/dash|*/ksh) [ -x "$s" ] || s= ;; *) s= ;; esac; ' +
+  'if [ -z "$s" ]; then if [ "$(uname)" = Darwin ] && [ -x /bin/zsh ]; then s=/bin/zsh; elif [ -x /bin/bash ]; then s=/bin/bash; else s=/bin/sh; fi; fi; ' +
+  'exec "$s" -lc \'exec "$@"\' sh "$@"';
 const TOP_H = 40, CANVAS_H = 200, NOTE_H = 26;
 const TEXT = {
   en: { title: "App pipeline", add: "+ New app", key: "Play key", keyMissing: "Play key needed", chat: "Team chat", say: "Tell the team something…", send: "Send",
     name: "App name (optional: taken from the folder)", idea: "What should it be? Describe the service, or name a reference (empty: find what is trending)",
+    refs: "References: Play Store links, repositories (space-separated). Drop screenshots here too.", refsHelp: "References are studied, never copied: ours gets its own name, art and text.",
     dir: "Project folder (empty: a new folder under {root})", browse: "Choose folder…", needIdea: "Say what to build, or give it a name.", auto: "Auto app: from plan to store", kind: { auto: "Decide for me", app: "App", game: "Game" },
     mode: { auto: "Unattended", promote: "Ask before production", review: "Ask at every choice" },
     modeHelp: { auto: "Nobody is asked, production included.", promote: "Choices are automatic; production waits for you.", review: "You pick the idea and the design, and approve production." },
@@ -28,6 +33,7 @@ const TEXT = {
       "pick.auto": "Chose \"{arg}\" (unattended).", "pick.person": "Go with \"{arg}\".", approve: "Approved. Ship it.", done: "Shipped. The pipeline is finished." } },
   ko: { title: "앱 파이프라인", add: "+ 새 앱", key: "Play 키", keyMissing: "Play 키 필요", chat: "팀 대화", say: "팀에게 한마디…", send: "보내기",
     name: "앱 이름 (선택: 비우면 폴더 이름)", idea: "어떤 서비스를 만들까요? 설명이나 레퍼런스를 적어 주세요 (비우면 유행하는 것에서 찾음)",
+    refs: "레퍼런스: 플레이스토어 링크, 저장소 (띄어쓰기로 구분). 스크린샷은 여기에 끌어다 놓으세요.", refsHelp: "레퍼런스는 참고만 하고 베끼지 않습니다. 이름·그림·문구는 새로 만듭니다.",
     dir: "프로젝트 폴더 (비우면 {root} 아래 새 폴더)", browse: "폴더 선택…", needIdea: "무엇을 만들지 적거나 이름을 정해 주세요.", auto: "Auto app: 기획부터 스토어까지", kind: { auto: "알아서", app: "앱", game: "게임" },
     mode: { auto: "무인", promote: "승격만 확인", review: "모두 확인" },
     modeHelp: { auto: "프로덕션까지 아무것도 묻지 않습니다.", promote: "선택은 자동이고, 프로덕션 승격만 기다립니다.", review: "기획과 디자인을 직접 고르고 승격도 승인합니다." },
@@ -96,6 +102,8 @@ export default class Pipeline extends View {
     this.nameInput = InputState.new({ placeholder: copy().name });
     this.ideaInput = InputState.new({ placeholder: copy().idea });
     this.dirInput = InputState.new({ placeholder: copy().dir.replace("{root}", "~/projects") });
+    this.refsInput = InputState.new({ placeholder: copy().refs });
+    this.refImages = [];   // screenshots dropped on the form
     this.ideaInput.on("submit", (_e, cx) => this.create(cx));
     // Opened from the + menu as "Auto app": the form is the first thing shown.
     if (props()?.create) { this.form = { kind: "auto", mode: "promote" }; if (props().dir) this.dirInput.set_value(String(props().dir)); }
@@ -144,7 +152,10 @@ export default class Pipeline extends View {
 
   /** The conductor runs outside the window, in an hc terminal that ends when it has nothing to do. */
   async resume(id, dir = this.data.apps.find(a => a.id === id)?.dir) {
-    const name = `pipeline-${id}`.slice(0, 48);
+    // hc names are at most 32 characters: a prefix of the id and a short hash of all of it.
+    let h = 0;
+    for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    const name = `pipe-${id.slice(0, 20)}-${h.toString(36).slice(-4).padStart(4, "0")}`;
     await exec("hc", ["kill", name]).catch(() => {});
     await exec("hc", ["rm", name]).catch(() => {});
     const r = await exec("hc", ["run", "--bg", "--json", "--no-notify", "--no-parent", "--rm", "--name", name, ...(dir ? ["--cwd", dir] : []), "--", ...this.viaShell(["node", this.tool(), "run", id])], { timeout: 20000 });
@@ -152,7 +163,7 @@ export default class Pipeline extends View {
   }
 
   /** herdr-core on macOS and Linux lacks the person's PATH (node lives in their shell profile). */
-  viaShell(argv) { return window().platform === "windows" ? argv : ["/bin/sh", "-lc", 'exec "$@"', "sh", ...argv]; }
+  viaShell(argv) { return window().platform === "windows" ? argv : ["/bin/sh", "-c", LOGIN, "sh", ...argv]; }
 
   create(cx) {
     const dir = this.dirInput.value().trim(), idea = this.ideaInput.value().trim();
@@ -162,12 +173,13 @@ export default class Pipeline extends View {
     const { kind, mode } = this.form;
     cx.spawn(async cx => {
       try {
-        const r = await this.nv(["new", name, "--idea", idea, "--kind", kind, "--mode", mode, ...(dir ? ["--dir", dir] : [])]);
+        const refs = [...this.refsInput.value().split(/[\s,]+/).filter(Boolean), ...this.refImages];
+        const r = await this.nv(["new", name, "--idea", idea, "--kind", kind, "--mode", mode, ...(dir ? ["--dir", dir] : []), ...refs.flatMap(x => ["--ref", x])]);
         if (r.code !== 0) { this.note = this.errorOf(r); cx.notify(); return; }
         const made = JSON.parse(r.stdout);
         this.select(made.id);
         this.form = null; this.note = null;
-        this.nameInput.set_value(""); this.ideaInput.set_value(""); this.dirInput.set_value("");
+        this.nameInput.set_value(""); this.ideaInput.set_value(""); this.dirInput.set_value(""); this.refsInput.set_value(""); this.refImages = [];
         const listed = await this.nv(["status", made.id]);
         await this.resume(made.id, listed.code === 0 ? JSON.parse(listed.stdout).apps[0]?.dir : undefined);
       } catch (error) { this.note = String(error.message ?? error); }
@@ -186,6 +198,9 @@ export default class Pipeline extends View {
 
   /** A key file dropped anywhere on the board. */
   dropKey(paths, cx) {
+    // Pictures dropped while the form is open are references for the new app.
+    const pictures = (paths ?? []).filter(p => /\.(png|jpe?g|webp|gif)$/i.test(p));
+    if (this.form && pictures.length) { this.refImages = [...this.refImages, ...pictures].slice(0, 8); cx.notify(); return; }
     const file = (paths ?? []).find(p => /\.json$/i.test(p));
     if (!file) { this.note = copy().drop; cx.notify(); return; }
     const app = this.app();
@@ -254,6 +269,11 @@ export default class Pipeline extends View {
           if (chosen) { this.dirInput.set_value(chosen); cx.notify(); }
         }), t)))
       .child(field(this.ideaInput))
+      .child(field(this.refsInput))
+      .when(this.refImages.length > 0, el => el.child(h_flex().gap(4).flex_wrap().children(this.refImages.map((p, i) => div().id(`ref-image-${i}`).px(7).py(2).rounded(9).text_size(11).bg(t.raised).text_color(t.muted).cursor_pointer()
+        .on_click((_e, cx) => { this.refImages = this.refImages.filter((_x, n) => n !== i); cx.notify(); })
+        .child(`${p.split(/[\\/]/).at(-1)} ×`)))))
+      .child(div().text_size(11).text_color(t.dim).child(l.refsHelp))
       .child(field(this.nameInput))
       .child(chips("kind", ["auto", "app", "game"], l.kind, this.form.kind, v => { this.form.kind = v; }))
       .child(chips("mode", ["auto", "promote", "review"], l.mode, this.form.mode, v => { this.form.mode = v; }))
@@ -379,12 +399,14 @@ export default class Pipeline extends View {
         .child(div().text_size(12).child(l.approveHelp))
         .child(h_flex().child(this.button("approve", l.approve, cx => this.command(cx, ["approve", app.id], { resume: true }), t, { primary: true })))))
       .when(gate?.kind === "key", el => el.child(this.keyDrop(t, l)))
-      .when(gate?.kind === "blocked", el => el.child(div().text_color(t.blocked).child(l.blocked)))
+      .when(gate?.kind === "blocked", el => el.child(v_flex().gap(6)
+        .child(div().text_color(t.blocked).child(l.blocked))
+        .child(h_flex().child(this.button("continue-blocked", l.resume, cx => cx.spawn(async cx => { await this.resume(app.id); this.load(cx); }), t, { primary: true })))))
       .when(Boolean(rec.error), el => el.child(div().text_size(12).text_color(t.blocked).child(String(rec.error))))
       .when(Boolean(rec.summary) && !rec.error, el => el.child(div().text_size(12).child(String(rec.summary))))
       .when(cards.length > 0, el => el.child(h_flex().gap(10).flex_wrap().children(cards)))
       .child(div().h(1).flex_none().bg(t.border))
-      .child(h_flex().gap(4).items_center().children(["auto", "promote", "review"].map(m => this.button(`mode-${m}`, l.mode[m], cx => this.command(cx, ["mode", app.id, m]), t, { active: s.mode === m }))))
+      .child(h_flex().gap(4).items_center().children(["auto", "promote", "review"].map(m => this.button(`mode-${m}`, l.mode[m], cx => this.command(cx, ["mode", app.id, m], { resume: m !== "review" && s.gate?.kind === "pick" }), t, { active: s.mode === m }))))
       .child(div().text_size(11).text_color(t.muted).child(l.modeHelp[s.mode] ?? ""))
       .child(h_flex().gap(6).flex_wrap()
         .when(resting, el => el.child(this.button("resume", s.status === "failed" ? l.retry : l.resume,

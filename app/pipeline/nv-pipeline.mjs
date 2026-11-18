@@ -4,7 +4,7 @@
 // hc terminal that reads pipeline/<stage>/TASK.md, writes pipeline/<stage>/result.json and is then
 // ended. Stages hand over through files only, so no conversation grows across the whole run.
 //
-//   nv-pipeline new "<name>" --idea "<seed>" [--kind app|game|auto] [--mode auto|promote|review] [--dir <path>]
+//   nv-pipeline new "<name>" --idea "<seed>" [--ref <store link|repo|image>]… [--kind app|game|auto] [--mode auto|promote|review] [--dir <path>]
 //   nv-pipeline run <id> [--until <stage>]     advance until done, a gate, or a failure
 //   nv-pipeline pick <id> <option>             choose an idea or a design at a gate
 //   nv-pipeline approve <id>                   allow the production release
@@ -16,7 +16,7 @@
 //
 // Home: ~/.config/herdr-app/pipeline (apps.json, settings.json, secrets/play-key.json, preview/).
 import { spawnSync } from "node:child_process";
-import { appendFileSync, chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, copyFileSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +56,7 @@ export function realSystem(env = process.env) {
   };
 }
 
-// ---------------------------------------------------------------- files
+// ---------------------------------------------------------------- files and locks
 
 const readJson = (file, fallback) => { try { return JSON.parse(readFileSync(file, "utf8")); } catch { return fallback; } };
 function writeJson(file, value) {
@@ -67,6 +67,32 @@ function writeJson(file, value) {
 }
 // Ids name folders and terminals, so they are plain ASCII (Android tooling dislikes other paths); the display name keeps its script.
 export const slug = name => String(name).trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40) || "app";
+
+/** hc names are at most 32 characters: a prefix of the id, a short hash of the whole id, and the stage. */
+export function terminalName(id, stage) {
+  let h = 0;
+  for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  return `pl-${id.slice(0, 14)}-${h.toString(36).slice(-4).padStart(4, "0")}-${stage}`;
+}
+
+const sleepSync = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; } };
+
+/** Runs fn while holding a lock file. Every read-modify-write of shared files goes through one, so
+ *  the conductor, the board's commands and a second conductor never overwrite each other. */
+function locked(file, fn) {
+  mkdirSync(dirname(file), { recursive: true });
+  const until = Date.now() + 15000;
+  for (;;) {
+    try { closeSync(openSync(file, "wx")); break; } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      try { if (Date.now() - statSync(file).mtimeMs > 20000) { unlinkSync(file); continue; } } catch { continue; }
+      if (Date.now() > until) throw new Error(`${file} stays locked (remove it if nothing is running)`);
+      sleepSync(15);
+    }
+  }
+  try { return fn(); } finally { try { unlinkSync(file); } catch { /* already gone */ } }
+}
 
 // How each model's CLI is started so it works without a person. {prompt} is where the task goes.
 // claude and grok decide per action in their "auto" mode; codex needs no approval but may only
@@ -99,22 +125,34 @@ export function agentFor(sys, stageId, tries = 1) {
   const template = set.agents[name] ?? AGENTS.claude;
   return { name, argv: prompt => template.includes("{prompt}") ? template.map(a => a === "{prompt}" ? prompt : a) : [...template, prompt] };
 }
-const registry = sys => readJson(join(sys.home, "apps.json"), []);
+
+const registryFile = sys => join(sys.home, "apps.json");
+const registry = sys => readJson(registryFile(sys), []);
 const keyFile = sys => join(sys.home, "secrets", "play-key.json");
 const stateFile = dir => join(dir, "pipeline", "state.json");
 const feedFile = dir => join(dir, "pipeline", "feed.jsonl");
 
-function find(sys, id) {
+function appOf(sys, id) {
   const app = registry(sys).find(a => a.id === id);
   if (!app) throw new UsageError(`no pipeline named ${id} (nv-pipeline status)`);
+  return app;
+}
+function load(app) {
   const state = readJson(stateFile(app.dir), null);
   if (!state) throw new Error(`${stateFile(app.dir)} is missing or unreadable`);
-  return { app, state };
+  return state;
 }
-function save(app, state, event) {
-  if (event) state.log = [...(state.log ?? []), { at: new Date().toISOString(), text: event }].slice(-60);
-  state.updatedAt = new Date().toISOString();
-  writeJson(stateFile(app.dir), state);
+/** The only way state is written: read what is on disk now, change it, write it, all under the lock.
+ *  Nobody keeps a copy across a stage, so a mode change or a stop made meanwhile is never lost. */
+function change(app, fn, event) {
+  return locked(join(app.dir, "pipeline", "state.lock"), () => {
+    const state = load(app);
+    fn(state);
+    if (event) state.log = [...(state.log ?? []), { at: new Date().toISOString(), text: event }].slice(-60);
+    state.updatedAt = new Date().toISOString();
+    writeJson(stateFile(app.dir), state);
+    return state;
+  });
 }
 
 /** One line of the team's feed: who said or handed what to whom. Agents append notes to the same file. */
@@ -134,11 +172,19 @@ export function readKey(file) {
   }
   return { email: key.client_email, project: key.project_id ?? null };
 }
+/** Stores the key so that it is never readable by others, not even for a moment: the folder is
+ *  owner-only before anything is written, and the file is created owner-only. */
 function setKey(sys, file) {
   const info = readKey(file);
-  mkdirSync(dirname(keyFile(sys)), { recursive: true });
-  copyFileSync(file, keyFile(sys));
-  try { chmodSync(dirname(keyFile(sys)), 0o700); chmodSync(keyFile(sys), 0o600); } catch { /* Windows has no modes */ }
+  const posix = sys.platform !== "win32", dir = dirname(keyFile(sys));
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  if (posix) chmodSync(dir, 0o700);
+  const tmp = join(dir, `.play-key.${process.pid}.tmp`);
+  rmSync(tmp, { force: true });
+  const fd = openSync(tmp, "wx", 0o600);
+  try { writeSync(fd, readFileSync(file)); } finally { closeSync(fd); }
+  if (posix) chmodSync(tmp, 0o600);
+  renameSync(tmp, keyFile(sys));
   return info;
 }
 const keyStatus = sys => existsSync(keyFile(sys)) ? { present: true, ...readKey(keyFile(sys)), path: keyFile(sys) } : { present: false };
@@ -164,44 +210,82 @@ function task(sys, app, state, stage) {
     dir: app.dir, stage: stage.id, role: stage.role, next: next ? `${next.role} (${next.id})` : "nobody: this is the last stage", minutes: stage.minutes,
     key: keyFile(sys), package: state.package ?? "(set in the brief stage)",
     idea_choice: chosen("research") ?? "(none)", design_choice: chosen("design") ?? "(none)",
+    refs: refsText(state.refs),
   });
+}
+
+/** What the person pointed at as a reference: a store page, a repository, a web page, or a picture
+ *  (copied into the project so every stage can open it). */
+export function reference(value, dir, index) {
+  const text = String(value).trim();
+  if (/^https?:\/\//i.test(text)) {
+    const kind = /play\.google\.com\/store\/apps/i.test(text) ? "play" : /apps\.apple\.com/i.test(text) ? "appstore" : /github\.com\//i.test(text) ? "repo" : "web";
+    return { kind, url: text };
+  }
+  const file = resolve(text.replace(/^~(?=$|[\\/])/, homedir()));
+  if (/\.(png|jpe?g|webp|gif)$/i.test(file) && existsSync(file)) {
+    const rel = `pipeline/refs/${index + 1}${extname(file).toLowerCase()}`;
+    mkdirSync(join(dir, "pipeline", "refs"), { recursive: true });
+    copyFileSync(file, join(dir, rel));
+    return { kind: "image", file: rel };
+  }
+  return { kind: "note", text };
+}
+
+function refsText(refs) {
+  if (!refs?.length) return "(none given)";
+  const label = { play: "Google Play page", appstore: "App Store page", repo: "repository (check its license)", web: "web page", image: "picture in the project", note: "note" };
+  return "\n" + refs.map(r => `  - ${label[r.kind]}: ${r.url ?? r.file ?? r.text}`).join("\n");
 }
 
 // ---------------------------------------------------------------- running one stage
 
 const READY_MS = 4000, POLL_MS = 5000;
 
-/** A command as hc should start it. On macOS and Linux herdr-core does not have the person's PATH
- *  (node, claude, flutter live in their shell profile), so it goes through a login shell. */
+// herdr-core on macOS and Linux does not have the person's PATH (node, claude, flutter live in
+// their shell profile). Programs therefore start through their login shell: $SHELL when it is a
+// POSIX-style shell, else zsh on macOS (its default; it reads ~/.zprofile), bash, then sh.
+const LOGIN = 's="${SHELL:-}"; case "$s" in */zsh|*/bash|*/sh|*/dash|*/ksh) [ -x "$s" ] || s= ;; *) s= ;; esac; ' +
+  'if [ -z "$s" ]; then if [ "$(uname)" = Darwin ] && [ -x /bin/zsh ]; then s=/bin/zsh; elif [ -x /bin/bash ]; then s=/bin/bash; else s=/bin/sh; fi; fi; ' +
+  'exec "$s" -lc \'exec "$@"\' sh "$@"';
+/** A command as hc should start it: unchanged on Windows, through the login shell elsewhere. */
 export function viaShell(argv, platform = process.platform) {
-  return platform === "win32" ? argv : ["/bin/sh", "-lc", 'exec "$@"', "sh", ...argv];
+  return platform === "win32" ? argv : ["/bin/sh", "-c", LOGIN, "sh", ...argv];
 }
 
-/** Starts the stage's agent, waits for its result file, and always ends its terminal. */
-async function runStage(sys, app, state, stage) {
+const readJsonText = text => { try { return JSON.parse(text); } catch { return null; } };
+const lastLines = (sys, terminal) => sys.hc(["read", terminal, "--lines", "0"]).stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(-3).join(" / ").slice(0, 300);
+const isLive = (sys, terminal) => readJsonText(sys.hc(["get", terminal, "--json"]).stdout)?.state === "live";
+const endTerminal = (sys, terminal) => { sys.hc(["kill", terminal]); sys.hc(["rm", terminal]); };
+
+/** Starts the stage's agent (or takes over one that was waiting for the person), waits for its
+ *  result file, and ends its terminal unless it still needs the person. */
+async function runStage(sys, app, state, stage, adopt) {
   const dir = join(app.dir, "pipeline", stage.id);
   mkdirSync(dir, { recursive: true });
   const resultFile = join(dir, "result.json");
-  rmSync(resultFile, { force: true });
-  writeFileSync(join(dir, "TASK.md"), task(sys, app, state, stage));
-  const prompt = `You are the ${stage.role} ("${stage.id}" stage) of an unattended app pipeline for "${state.name}". Read pipeline/${stage.id}/TASK.md and do exactly what it says, nothing from other stages. Finish by writing pipeline/${stage.id}/result.json.`;
-  const name = `pl-${state.id}-${stage.id}`.slice(0, 48);
-  sys.hc(["kill", name]); sys.hc(["rm", name]);   // a leftover from an interrupted run
-  const record = state.stages[stage.id];
-  const agent = agentFor(sys, stage.id, record.tries ?? 1);
-  record.agent = agent.name;
-  const started = sys.hc(["run", "--bg", "--json", "--no-notify", "--outlive-parent", "--name", name, "--cwd", app.dir, "--", ...viaShell(agent.argv(prompt), sys.platform)]);
-  if (started.code !== 0) return { status: "failed", summary: `could not start the agent: ${(started.stderr || started.stdout).trim()}` };
-  const terminal = readJsonText(started.stdout)?.address ?? name;
-  record.terminal = terminal;
-  save(app, state);
+  let terminal = adopt;
+  if (!terminal) {
+    rmSync(resultFile, { force: true });
+    writeFileSync(join(dir, "TASK.md"), task(sys, app, state, stage));
+    const prompt = `You are the ${stage.role} ("${stage.id}" stage) of an unattended app pipeline for "${state.name}". Read pipeline/${stage.id}/TASK.md and do exactly what it says, nothing from other stages. Finish by writing pipeline/${stage.id}/result.json.`;
+    const name = terminalName(state.id, stage.id);
+    endTerminal(sys, name);   // a leftover from an interrupted run
+    const agent = agentFor(sys, stage.id, state.stages[stage.id].tries ?? 1);
+    const started = sys.hc(["run", "--bg", "--json", "--no-notify", "--outlive-parent", "--name", name, "--cwd", app.dir, "--", ...viaShell(agent.argv(prompt), sys.platform)]);
+    if (started.code !== 0) return { status: "failed", summary: `could not start the agent: ${(started.stderr || started.stdout).trim()}` };
+    terminal = readJsonText(started.stdout)?.address ?? name;
+    change(app, s => { s.stages[stage.id].terminal = terminal; s.stages[stage.id].agent = agent.name; });
+  }
   const begun = sys.now(), deadline = begun + stage.minutes * 60000;
   let trusted = false, result = null;
   try {
-    await sys.sleep(READY_MS);
+    if (!adopt) await sys.sleep(READY_MS);
     for (;;) {
+      // A stop comes first: a stopped pipeline takes no result and starts nothing.
+      if (load(app).stopRequested) { result = { status: "stopped", summary: "stopped by the person" }; break; }
       const info = readJsonText(sys.hc(["get", terminal, "--json"]).stdout) ?? {};
-      if (!trusted && sys.now() - begun < 60000) {
+      if (!trusted && !adopt && sys.now() - begun < 60000) {
         // A new folder asks "do you trust this folder?" before the agent starts.
         const screen = sys.hc(["read", terminal, "--lines", "0"]).stdout;
         if (/trust (this|the files in this) folder/i.test(screen)) { sys.hc(["keys", terminal, "enter"]); trusted = true; }
@@ -213,19 +297,18 @@ async function runStage(sys, app, state, stage) {
         break;
       }
       if (info.status === "blocked") { result = { status: "blocked", summary: `the agent is waiting for a person: ${lastLines(sys, terminal)}` }; break; }
-      if (readJson(stateFile(app.dir), {}).status === "stopped") { result = { status: "stopped", summary: "stopped by the person" }; break; }
       if (sys.now() > deadline) { result = { status: "failed", summary: `no result after ${stage.minutes} minutes (the stage's budget)` }; break; }
       await sys.sleep(POLL_MS);
     }
   } finally {
     // A blocked agent stays so the person can answer it; everything else is ended to free memory.
-    if (result?.status !== "blocked") { sys.hc(["kill", terminal]); sys.hc(["rm", terminal]); record.terminal = null; }
+    if (result?.status !== "blocked") {
+      endTerminal(sys, terminal);
+      change(app, s => { s.stages[stage.id].terminal = null; });
+    }
   }
   return normalize(result);
 }
-
-const readJsonText = text => { try { return JSON.parse(text); } catch { return null; } };
-const lastLines = (sys, terminal) => sys.hc(["read", terminal, "--lines", "0"]).stdout.split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(-3).join(" / ").slice(0, 300);
 
 /** A result file as the conductor understands it; anything malformed counts as a failure. */
 export function normalize(result) {
@@ -263,61 +346,112 @@ function preview(sys, app, state, stage, options) {
 
 // ---------------------------------------------------------------- the conductor
 
-/** Advances a pipeline until it is done, needs a person, fails, or reaches `until`. */
-export async function advance(sys, id, { until = null } = {}) {
-  const { app, state } = find(sys, id);
-  if (state.runner && state.runner !== sys.self && state.status === "running" && /"state":\s*"live"/.test(sys.hc(["get", state.runner, "--json"]).stdout)) {
-    throw new UsageError(`${id} is already running in ${state.runner}`);
-  }
-  state.runner = sys.self; state.status = "running"; state.gate = null;
-  save(app, state, "running");
-  for (;;) {
-    const stage = STAGES.find(s => state.stages[s.id].status !== "done");
-    if (!stage) { state.status = "done"; state.stage = null; save(app, state, "pipeline done"); feed(app, { from: "release", kind: "done", code: "done", text: "Pipeline finished." }); break; }
-    const record = state.stages[stage.id];
-    state.stage = stage.id;
-    if (record.status === "waiting" && stage.gate === "pick") { gate(app, state, { kind: "pick", stage: stage.id }); break; }   // options made, choice pending
-    if (stage.needsKey && !existsSync(keyFile(sys))) { gate(app, state, { kind: "key", stage: stage.id }); break; }
-    if (stage.gate === "approve" && state.mode !== "auto" && !state.approved?.[stage.id]) { gate(app, state, { kind: "approve", stage: stage.id }); break; }
-    record.status = "running"; record.startedAt = new Date().toISOString(); record.endedAt = null; record.tries = (record.tries ?? 0) + 1; record.error = null;
-    save(app, state, `${stage.id}: started (try ${record.tries})`);
-    feed(app, { from: stage.id, kind: "start", code: record.tries > 1 ? "start.again" : "start", text: `${stage.role} started${record.tries > 1 ? ` (try ${record.tries})` : ""}.` });
-    const result = await runStage(sys, app, state, stage);
-    record.endedAt = new Date().toISOString();
-    record.summary = result.summary;
-    if (result.status === "stopped") { record.status = "pending"; state.status = "stopped"; save(app, state, `${stage.id}: stopped`); break; }
-    if (result.status === "blocked") { record.status = "blocked"; record.error = result.summary; gate(app, state, { kind: "blocked", stage: stage.id }); break; }
-    if (result.status !== "done") {
-      record.error = result.summary;
-      feed(app, { from: stage.id, kind: "fail", text: result.summary });
-      if (record.tries <= settings(sys).retries) { record.status = "pending"; save(app, state, `${stage.id}: failed, trying again (${result.summary})`); continue; }
-      record.status = "failed"; state.status = "failed"; save(app, state, `${stage.id}: failed (${result.summary})`); break;
+/** One conductor per project: a lock file that names the process holding it. */
+function takeRunLock(app, id) {
+  const file = join(app.dir, "pipeline", "run.lock");
+  for (let i = 0; i < 3; i++) {
+    try {
+      const fd = openSync(file, "wx");
+      try { writeSync(fd, String(process.pid)); } finally { closeSync(fd); }
+      return () => { try { unlinkSync(file); } catch { /* already gone */ } };
+    } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      const holder = Number(readJson(file, 0));
+      if (holder > 0 && alive(holder)) throw new UsageError(`${id} is already running (process ${holder})`);
+      try { unlinkSync(file); } catch { /* someone else cleaned it */ }
     }
-    for (const field of ["engine", "package", "title"]) if (typeof result[field] === "string" && result[field]) state[field] = result[field];
-    const next = STAGES[STAGES.indexOf(stage) + 1];
-    if (stage.gate === "pick") {
-      const options = preview(sys, app, state, stage, result.options ?? []);
-      if (!options.length) { record.status = "failed"; state.status = "failed"; record.error = "the stage offered no options"; save(app, state, `${stage.id}: failed (no options)`); break; }
-      state.options = { ...(state.options ?? {}), [stage.id]: options };
-      if (state.mode === "review") { record.status = "waiting"; gate(app, state, { kind: "pick", stage: stage.id }); break; }
-      state.choice = { ...(state.choice ?? {}), [stage.id]: autoPick(options) };
-      feed(app, { from: stage.id, kind: "choice", code: "pick.auto", arg: options.find(o => o.id === state.choice[stage.id]).title, text: `Chose "${options.find(o => o.id === state.choice[stage.id]).title}" (unattended).` });
-    }
-    record.status = "done";
-    save(app, state, `${stage.id}: done`);
-    feed(app, { from: stage.id, to: next?.id ?? null, kind: "handoff", text: result.summary });
-    if (until === stage.id) { state.status = "paused"; save(app, state, `paused after ${stage.id}`); break; }
   }
-  const final = readJson(stateFile(app.dir), state);
-  final.runner = null;
-  writeJson(stateFile(app.dir), final);
-  return final;
+  throw new UsageError(`${id} is already running`);
 }
 
-function gate(app, state, g) {
-  state.status = "waiting"; state.gate = g;
-  save(app, state, `${g.stage}: waiting for the person (${g.kind})`);
-  feed(app, { from: g.stage, to: "person", kind: "ask", code: `ask.${g.kind}`, text: { pick: "Please choose one.", approve: "Ready for production. Approve?", key: "I need the Play service account key.", blocked: "I'm stuck and need you." }[g.kind] });
+/** Advances a pipeline until it is done, needs a person, fails, or reaches `until`. */
+export async function advance(sys, id, { until = null } = {}) {
+  const app = appOf(sys, id);
+  load(app);
+  const release = takeRunLock(app, id);
+  const gate = g => {
+    change(app, s => { s.status = "waiting"; s.gate = g; s.stage = g.stage; }, `${g.stage}: waiting for the person (${g.kind})`);
+    feed(app, { from: g.stage, to: "person", kind: "ask", code: `ask.${g.kind}`, text: { pick: "Please choose one.", approve: "Ready for production. Approve?", key: "I need the Play service account key.", blocked: "I'm stuck and need you." }[g.kind] });
+  };
+  try {
+    change(app, s => { s.runner = sys.self; s.status = "running"; s.gate = null; s.stopRequested = false; }, "running");
+    for (;;) {
+      // Decide from what is on disk now: the mode, an approval or a stop may have changed since the last stage.
+      const state = load(app);
+      if (state.stopRequested) { change(app, s => { s.status = "stopped"; }, "stopped"); break; }
+      const stage = STAGES.find(s => state.stages[s.id].status !== "done");
+      if (!stage) {
+        change(app, s => { s.status = "done"; s.stage = null; }, "pipeline done");
+        feed(app, { from: "release", kind: "done", code: "done", text: "Pipeline finished." });
+        break;
+      }
+      const record = state.stages[stage.id];
+      const next = STAGES[STAGES.indexOf(stage) + 1];
+      if (record.status === "waiting" && stage.gate === "pick") {
+        if (state.mode === "review") { gate({ kind: "pick", stage: stage.id }); break; }
+        // The mode no longer asks: take the options that are already there.
+        const options = state.options?.[stage.id] ?? [], chosen = options.find(o => o.id === autoPick(options));
+        change(app, s => { s.choice = { ...(s.choice ?? {}), [stage.id]: chosen.id }; s.stages[stage.id].status = "done"; s.gate = null; }, `${stage.id}: chose ${chosen.id} (unattended)`);
+        feed(app, { from: stage.id, kind: "choice", code: "pick.auto", arg: chosen.title, text: `Chose "${chosen.title}" (unattended).` });
+        feed(app, { from: stage.id, to: next?.id ?? null, kind: "handoff", text: record.summary ?? "" });
+        continue;
+      }
+      if (stage.needsKey && !existsSync(keyFile(sys))) { gate({ kind: "key", stage: stage.id }); break; }
+      if (stage.gate === "approve" && state.mode !== "auto" && !state.approved?.[stage.id]) { gate({ kind: "approve", stage: stage.id }); break; }
+      // An agent that was waiting for the person and is still there is taken over, not started again.
+      const adopt = record.status === "blocked" && record.terminal && isLive(sys, record.terminal) ? record.terminal : null;
+      const started = change(app, s => {
+        const r = s.stages[stage.id];
+        s.stage = stage.id; s.status = "running"; s.gate = null;
+        r.status = "running"; r.endedAt = null; r.error = null;
+        if (!adopt) { r.tries = (r.tries ?? 0) + 1; r.startedAt = new Date().toISOString(); }
+      }, `${stage.id}: ${adopt ? "continuing" : "started"} (try ${(record.tries ?? 0) + (adopt ? 0 : 1)})`);
+      const tries = started.stages[stage.id].tries;
+      if (!adopt) feed(app, { from: stage.id, kind: "start", code: tries > 1 ? "start.again" : "start", text: `${stage.role} started${tries > 1 ? ` (try ${tries})` : ""}.` });
+      const result = await runStage(sys, app, started, stage, adopt);
+      const ended = new Date().toISOString();
+      if (result.status === "stopped" || load(app).stopRequested) {
+        change(app, s => { s.stages[stage.id].status = "pending"; s.status = "stopped"; }, `${stage.id}: stopped`);
+        break;
+      }
+      if (result.status === "blocked") {
+        change(app, s => { Object.assign(s.stages[stage.id], { status: "blocked", error: result.summary, summary: result.summary, endedAt: ended }); });
+        gate({ kind: "blocked", stage: stage.id });
+        break;
+      }
+      if (result.status !== "done") {
+        feed(app, { from: stage.id, kind: "fail", text: result.summary });
+        const again = tries <= settings(sys).retries;
+        change(app, s => {
+          Object.assign(s.stages[stage.id], { status: again ? "pending" : "failed", error: result.summary, summary: result.summary, endedAt: ended });
+          if (!again) s.status = "failed";
+        }, `${stage.id}: failed${again ? ", trying again" : ""} (${result.summary})`);
+        if (again) continue;
+        break;
+      }
+      const options = stage.gate === "pick" ? preview(sys, app, state, stage, result.options ?? []) : null;
+      if (options && !options.length) {
+        change(app, s => { Object.assign(s.stages[stage.id], { status: "failed", error: "the stage offered no options", endedAt: ended }); s.status = "failed"; }, `${stage.id}: failed (no options)`);
+        break;
+      }
+      // Whether to ask is decided by the mode as it is now, not as it was when the stage began.
+      const ask = Boolean(options) && load(app).mode === "review";
+      const picked = options && !ask ? options.find(o => o.id === autoPick(options)) : null;
+      change(app, s => {
+        Object.assign(s.stages[stage.id], { status: ask ? "waiting" : "done", summary: result.summary, endedAt: ended });
+        for (const field of ["engine", "package", "title"]) if (typeof result[field] === "string" && result[field]) s[field] = result[field];
+        if (options) s.options = { ...(s.options ?? {}), [stage.id]: options };
+        if (picked) s.choice = { ...(s.choice ?? {}), [stage.id]: picked.id };
+      }, `${stage.id}: ${ask ? "options ready" : "done"}`);
+      if (ask) { gate({ kind: "pick", stage: stage.id }); break; }
+      if (picked) feed(app, { from: stage.id, kind: "choice", code: "pick.auto", arg: picked.title, text: `Chose "${picked.title}" (unattended).` });
+      feed(app, { from: stage.id, to: next?.id ?? null, kind: "handoff", text: result.summary });
+      if (until === stage.id) { change(app, s => { s.status = "paused"; }, `paused after ${stage.id}`); break; }
+    }
+  } finally {
+    release();
+  }
+  return change(app, s => { s.runner = null; });
 }
 
 // ---------------------------------------------------------------- commands
@@ -327,60 +461,65 @@ function create(sys, name, flags) {
   const kind = flags.kind ?? "auto", mode = flags.mode ?? "promote";
   if (!["app", "game", "auto"].includes(kind)) throw new UsageError("--kind is app, game or auto");
   if (!MODES.includes(mode)) throw new UsageError(`--mode is one of ${MODES.join(", ")}`);
-  const apps = registry(sys);
-  let id = slug(name);
-  for (let n = 2; apps.some(a => a.id === id); n++) id = `${slug(name)}-${n}`;
-  const dir = resolve(flags.dir ? flags.dir.replace(/^~(?=$|[\\/])/, homedir()) : join(settings(sys).root, id));
-  if (existsSync(stateFile(dir))) throw new UsageError(`${dir} already has a pipeline`);
-  const state = {
-    id, name, idea: flags.idea ?? "", kind, mode, engine: null, status: "idle", stage: STAGES[0].id, gate: null,
-    stages: Object.fromEntries(STAGES.map(s => [s.id, { status: "pending", tries: 0 }])), options: {}, choice: {}, approved: {},
-    createdAt: new Date().toISOString(), log: [],
-  };
-  mkdirSync(join(dir, "pipeline"), { recursive: true });
-  save({ dir }, state, "created");
-  feed({ dir }, { from: "person", to: "research", kind: "note", text: flags.idea ? `Idea: ${flags.idea}` : "Find something worth building." });
-  writeJson(join(sys.home, "apps.json"), [...apps, { id, name, dir }]);
-  return state;
+  // Choosing the id and adding it to the list is one step, so two apps made at once both stay listed.
+  return locked(join(sys.home, "apps.lock"), () => {
+    const apps = registry(sys);
+    let id = slug(name);
+    for (let n = 2; apps.some(a => a.id === id); n++) id = `${slug(name)}-${n}`;
+    const dir = resolve(flags.dir ? flags.dir.replace(/^~(?=$|[\\/])/, homedir()) : join(settings(sys).root, id));
+    if (existsSync(stateFile(dir))) throw new UsageError(`${dir} already has a pipeline`);
+    const state = {
+      id, name, idea: flags.idea ?? "", refs: (flags.ref ?? []).map((r, i) => reference(r, dir, i)), kind, mode, engine: null, status: "idle", stage: STAGES[0].id, gate: null,
+      stages: Object.fromEntries(STAGES.map(s => [s.id, { status: "pending", tries: 0 }])), options: {}, choice: {}, approved: {},
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), log: [{ at: new Date().toISOString(), text: "created" }],
+    };
+    writeJson(stateFile(dir), state);
+    feed({ dir }, { from: "person", to: "research", kind: "note", text: flags.idea ? `Idea: ${flags.idea}` : "Find something worth building." });
+    writeJson(registryFile(sys), [...apps, { id, name, dir }]);
+    return state;
+  });
 }
 
 function pick(sys, id, option) {
-  const { app, state } = find(sys, id);
-  const stage = state.gate?.kind === "pick" ? state.gate.stage : STAGES.find(s => s.gate === "pick" && state.stages[s.id].status === "waiting")?.id;
-  if (!stage) throw new UsageError(`${id} is not waiting for a choice`);
-  const options = state.options?.[stage] ?? [];
-  const chosen = options.find(o => o.id === option);
-  if (!chosen) throw new UsageError(`choose one of: ${options.map(o => o.id).join(", ")}`);
-  state.choice = { ...(state.choice ?? {}), [stage]: option };
-  state.stages[stage].status = "done";
-  state.gate = null; state.status = "idle";
-  save(app, state, `${stage}: the person chose ${option}`);
-  feed(app, { from: "person", to: stage, kind: "choice", code: "pick.person", arg: chosen.title, text: `Go with "${chosen.title}".` });
+  const app = appOf(sys, id);
+  let chosen;
+  const state = change(app, s => {
+    const stage = s.gate?.kind === "pick" ? s.gate.stage : STAGES.find(x => x.gate === "pick" && s.stages[x.id].status === "waiting")?.id;
+    if (!stage) throw new UsageError(`${id} is not waiting for a choice`);
+    const options = s.options?.[stage] ?? [];
+    chosen = options.find(o => o.id === option);
+    if (!chosen) throw new UsageError(`choose one of: ${options.map(o => o.id).join(", ")}`);
+    s.choice = { ...(s.choice ?? {}), [stage]: option };
+    s.stages[stage].status = "done";
+    s.gate = null; s.status = "idle";
+    chosen = { ...chosen, stage, summary: s.stages[stage].summary ?? "" };
+  }, `the person chose ${option}`);
+  feed(app, { from: "person", to: chosen.stage, kind: "choice", code: "pick.person", arg: chosen.title, text: `Go with "${chosen.title}".` });
+  feed(app, { from: chosen.stage, to: STAGES[STAGES.findIndex(x => x.id === chosen.stage) + 1]?.id ?? null, kind: "handoff", text: chosen.summary });
   return state;
 }
 
 function approve(sys, id) {
-  const { app, state } = find(sys, id);
-  const stage = state.gate?.stage ?? "release";
-  state.approved = { ...(state.approved ?? {}), [stage]: true };
-  if (state.gate?.kind === "approve") { state.gate = null; state.status = "idle"; }
-  save(app, state, `${stage}: approved by the person`);
+  const app = appOf(sys, id);
+  let stage;
+  const state = change(app, s => {
+    stage = s.gate?.stage ?? "release";
+    s.approved = { ...(s.approved ?? {}), [stage]: true };
+    if (s.gate?.kind === "approve") { s.gate = null; s.status = "idle"; }
+  }, "approved by the person");
   feed(app, { from: "person", to: stage, kind: "choice", code: "approve", text: "Approved. Ship it." });
   return state;
 }
 
 function setMode(sys, id, mode) {
   if (!MODES.includes(mode)) throw new UsageError(`mode is one of ${MODES.join(", ")}`);
-  const { app, state } = find(sys, id);
-  state.mode = mode;
-  save(app, state, `mode: ${mode}`);
-  return state;
+  return change(appOf(sys, id), s => { s.mode = mode; }, `mode: ${mode}`);
 }
 
 /** A note from the person: shown in the feed and typed to the agent working now, if any. */
 function say(sys, id, text) {
   if (!text) throw new UsageError("say needs the message");
-  const { app, state } = find(sys, id);
+  const app = appOf(sys, id), state = load(app);
   const stage = stageOf(state.stage);
   const terminal = stage && state.stages[stage.id].terminal;
   feed(app, { from: "person", to: stage?.id ?? null, kind: "note", text });
@@ -390,41 +529,41 @@ function say(sys, id, text) {
 }
 
 function retry(sys, id, stageId) {
-  const { app, state } = find(sys, id);
-  const stage = stageId ? stageOf(stageId) : STAGES.find(s => ["failed", "blocked"].includes(state.stages[s.id].status)) ?? stageOf(state.stage);
-  if (!stage) throw new UsageError(`unknown stage ${stageId} (nv-pipeline stages)`);
-  // A stage that is run again invalidates everything built on it.
-  let after = false;
-  for (const s of STAGES) {
-    if (s.id === stage.id) after = true;
-    if (!after) continue;
-    const t = state.stages[s.id].terminal;
-    if (t) { sys.hc(["kill", t]); sys.hc(["rm", t]); }
-    state.stages[s.id] = { status: "pending", tries: 0 };
-    for (const bag of [state.choice, state.options, state.approved]) if (bag) delete bag[s.id];
-  }
-  state.status = "idle"; state.gate = null; state.stage = stage.id;
-  save(app, state, `${stage.id}: will run again`);
-  return state;
+  const app = appOf(sys, id);
+  return change(app, s => {
+    const stage = stageId ? stageOf(stageId) : STAGES.find(x => ["failed", "blocked"].includes(s.stages[x.id].status)) ?? stageOf(s.stage);
+    if (!stage) throw new UsageError(`unknown stage ${stageId} (nv-pipeline stages)`);
+    // A stage that is run again invalidates everything built on it.
+    let after = false;
+    for (const x of STAGES) {
+      if (x.id === stage.id) after = true;
+      if (!after) continue;
+      if (s.stages[x.id].terminal) endTerminal(sys, s.stages[x.id].terminal);
+      s.stages[x.id] = { status: "pending", tries: 0 };
+      for (const bag of [s.choice, s.options, s.approved]) if (bag) delete bag[x.id];
+    }
+    s.status = "idle"; s.gate = null; s.stage = stage.id; s.stopRequested = false;
+  }, `${stageId ?? "the failed stage"}: will run again`);
 }
 
+/** Ends every agent of the pipeline and tells a running conductor to stop: it checks before taking
+ *  a result and before starting a stage, so nothing runs after this, whoever started it. */
 function stop(sys, id) {
-  const { app, state } = find(sys, id);
-  for (const s of STAGES) {
-    const t = state.stages[s.id].terminal;
-    if (t) { sys.hc(["kill", t]); sys.hc(["rm", t]); state.stages[s.id].terminal = null; }
-    if (["running", "blocked"].includes(state.stages[s.id].status)) state.stages[s.id].status = "pending";
-  }
-  if (state.runner && state.runner !== sys.self) sys.hc(["kill", state.runner]);
-  state.status = "stopped"; state.gate = null; state.runner = null;
-  save(app, state, "stopped by the person");
-  return state;
+  const app = appOf(sys, id);
+  return change(app, s => {
+    for (const x of STAGES) {
+      const r = s.stages[x.id];
+      if (r.terminal) { endTerminal(sys, r.terminal); r.terminal = null; }
+      if (["running", "blocked"].includes(r.status)) r.status = "pending";
+    }
+    if (s.runner && s.runner !== sys.self) sys.hc(["kill", s.runner]);
+    s.stopRequested = true; s.status = "stopped"; s.gate = null; s.runner = null;
+  }, "stopped by the person");
 }
 
 function remove(sys, id) {
-  const { state } = find(sys, id);
-  if (state.status === "running") stop(sys, id);
-  writeJson(join(sys.home, "apps.json"), registry(sys).filter(a => a.id !== id));
+  stop(sys, id);   // whatever its state, no agent of it is left behind
+  locked(join(sys.home, "apps.lock"), () => writeJson(registryFile(sys), registry(sys).filter(a => a.id !== id)));
   rmSync(join(sys.home, "preview", id), { recursive: true, force: true });
   return { removed: id, kept: "the project folder and its pipeline/ files" };
 }
@@ -447,7 +586,10 @@ export function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--json") flags.json = true;
-    else if (["--idea", "--kind", "--mode", "--dir", "--until"].includes(a)) {
+    else if (a === "--ref") {
+      if (i + 1 >= argv.length) throw new UsageError("--ref needs a link or an image file");
+      (flags.ref ??= []).push(argv[++i]);
+    } else if (["--idea", "--kind", "--mode", "--dir", "--until"].includes(a)) {
       if (i + 1 >= argv.length) throw new UsageError(`${a} needs a value`);
       flags[a.slice(2)] = argv[++i];
     } else rest.push(a);

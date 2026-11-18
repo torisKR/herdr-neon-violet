@@ -1080,7 +1080,9 @@ test("Auto app starts a pipeline from a folder and a request, through a login sh
   const made = commands.find(c => c[0] === "node" && c[2] === "new");
   assert.deepEqual(made.slice(3), ["cat-cafe", "--idea", "고양이 카페 방치형 게임", "--kind", "auto", "--mode", "auto", "--dir", "/Users/me/projects/cat-cafe", "--json"]);
   const started = commands.find(c => c[0] === "hc" && c[1] === "run");
-  assert.deepEqual(started.slice(started.indexOf("--") + 1), ["/bin/sh", "-lc", 'exec "$@"', "sh", "node", "/local/herdr-app/bin/nv-pipeline.mjs", "run", "cat-cafe"]);
+  const argv = started.slice(started.indexOf("--") + 1);
+  assert.deepEqual([argv[0], argv[1], ...argv.slice(3)], ["/bin/sh", "-c", "sh", "node", "/local/herdr-app/bin/nv-pipeline.mjs", "run", "cat-cafe"]);
+  assert.ok(started[started.indexOf("--name") + 1].length <= 32);
   assert.equal(h.view.form, null);
 });
 
@@ -1106,4 +1108,17 @@ test("clicking a design card chooses it and lets the pipeline continue; a droppe
   assert.deepEqual(commands.find(c => c[2] === "key").slice(2, 5), ["key", "set", "/Users/me/Downloads/play.json"]);
   h.view.dropKey(["/Users/me/Downloads/readme.txt"], h.cx);
   assert.equal(commands.filter(c => c[2] === "key").length, 1);
+});
+
+test("references typed or dropped on the Auto app form are passed to the pipeline", async () => {
+  const { h, commands } = board({ props: () => ({ create: true }) });
+  h.view.ideaInput.set_value("cozy cafe game");
+  h.view.refsInput.set_value("https://play.google.com/store/apps/details?id=a.b, https://github.com/x/y");
+  h.view.dropKey(["/Users/me/Desktop/shot1.png", "/Users/me/Desktop/notes.txt"], h.cx);
+  assert.deepEqual(plain(h.view.refImages), ["/Users/me/Desktop/shot1.png"]);
+  assert.equal(commands.some(c => c[2] === "key"), false);
+  h.view.create(h.cx); await h.settle();
+  const made = commands.find(c => c[0] === "node" && c[2] === "new");
+  const refs = made.filter((_a, i) => made[i - 1] === "--ref");
+  assert.deepEqual(refs, ["https://play.google.com/store/apps/details?id=a.b", "https://github.com/x/y", "/Users/me/Desktop/shot1.png"]);
 });

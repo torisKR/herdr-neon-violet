@@ -4,7 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { CAST, STAGES, advance, agentFor, autoPick, main, normalize, parseArgs, readFeed, readKey, render, slug, viaShell } from "../pipeline/nv-pipeline.mjs";
+import { statSync } from "node:fs";
+import { CAST, STAGES, advance, agentFor, autoPick, main, normalize, parseArgs, readFeed, readKey, reference, render, slug, terminalName, viaShell } from "../pipeline/nv-pipeline.mjs";
+
+const T = stage => terminalName("cat-cafe", stage);
 
 const here = fileURLToPath(new URL("../pipeline", import.meta.url));
 const KEY = JSON.stringify({ type: "service_account", client_email: "ci@play.iam.gserviceaccount.com", private_key: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n", project_id: "p" });
@@ -54,7 +57,7 @@ test("unattended mode runs every stage, takes the recommended options and ends e
   assert.deepEqual(state.choice, { research: "b", design: "b" });
   assert.equal(state.engine, "godot");
   assert.equal(state.package, "kr.toris.cat");
-  for (const s of STAGES) assert.ok(w.calls.some(c => c[0] === "kill" && c[1] === `pl-cat-cafe-${s.id}`), `${s.id} agent ended`);
+  for (const s of STAGES) assert.ok(w.calls.some(c => c[0] === "kill" && c[1] === T(s.id)), `${s.id} agent ended`);
   assert.equal(w.live.size, 0);
   const feed = readFeed(join(w.root, "projects", "cat-cafe"), 100);
   assert.equal(feed.filter(e => e.kind === "handoff").length, STAGES.length);
@@ -85,7 +88,7 @@ test("promote mode asks only before production", async () => {
   assert.equal(state.status, "waiting");
   assert.deepEqual(state.gate, { kind: "approve", stage: "release" });
   assert.equal(state.stages.internal.status, "done");
-  assert.ok(!w.calls.some(c => c[0] === "run" && c.includes("pl-cat-cafe-release")));
+  assert.ok(!w.calls.some(c => c[0] === "run" && c.includes(T("release"))));
   await w.run("approve", "cat-cafe");
   state = await advance(w.sys, "cat-cafe");
   assert.equal(state.status, "done");
@@ -102,7 +105,7 @@ test("review mode stops for the person at each choice and continues with what th
   state = await advance(w.sys, "cat-cafe");
   assert.equal(state.choice.research, "c");
   assert.deepEqual(state.gate, { kind: "pick", stage: "design" });
-  assert.equal(w.calls.filter(c => c[0] === "run" && c.includes("pl-cat-cafe-research")).length, 1);
+  assert.equal(w.calls.filter(c => c[0] === "run" && c.includes(T("research"))).length, 1);
 });
 
 test("switching to unattended mid-run stops asking", async () => {
@@ -156,8 +159,8 @@ test("an agent that needs a person stays alive and the pipeline waits", async ()
   await w.run("new", "Cat Cafe", "--mode", "auto");
   const state = await advance(w.sys, "cat-cafe");
   assert.deepEqual(state.gate, { kind: "blocked", stage: "store" });
-  assert.equal(state.stages.store.terminal, "pl-cat-cafe-store");
-  assert.ok(w.live.has("pl-cat-cafe-store"));
+  assert.equal(state.stages.store.terminal, T("store"));
+  assert.ok(w.live.has(T("store")));
 });
 
 test("an agent that never answers is ended when the stage's budget runs out", async () => {
@@ -217,14 +220,18 @@ test("small helpers: results, picks, names, templates", () => {
 });
 
 test("on macOS and Linux agents start through a login shell, so node and claude are found", async () => {
-  assert.deepEqual(viaShell(["claude", "hi there"], "darwin"), ["/bin/sh", "-lc", 'exec "$@"', "sh", "claude", "hi there"]);
+  const wrapped = viaShell(["claude", "hi there"], "darwin");
+  assert.deepEqual([wrapped[0], wrapped[1], ...wrapped.slice(3)], ["/bin/sh", "-c", "sh", "claude", "hi there"]);
+  assert.match(wrapped[2], /SHELL/);            // the person's own shell when it is POSIX-style
+  assert.match(wrapped[2], /Darwin.*\/bin\/zsh/); // zsh on macOS, where node usually lives in ~/.zprofile
   assert.deepEqual(viaShell(["claude", "hi"], "win32"), ["claude", "hi"]);
   const w = world({ agent: team });
   w.sys.platform = "darwin";
   await w.run("new", "Cat Cafe", "--mode", "auto");
   await advance(w.sys, "cat-cafe", { until: "research" });
   const launch = w.calls.find(c => c[0] === "run");
-  assert.deepEqual(launch.slice(launch.indexOf("--") + 1, launch.indexOf("--") + 6), ["/bin/sh", "-lc", 'exec "$@"', "sh", "fake-agent"]);
+  const argv = launch.slice(launch.indexOf("--") + 1);
+  assert.deepEqual([argv[0], argv[1], argv[3], argv[4]], ["/bin/sh", "-c", "sh", "fake-agent"]);
 });
 
 test("each stage goes to its model: grok researches, codex draws, claude does the rest", async () => {
@@ -233,7 +240,7 @@ test("each stage goes to its model: grok researches, codex draws, claude does th
   await w.run("new", "Cat Cafe", "--mode", "auto");
   const state = await advance(w.sys, "cat-cafe");
   assert.deepEqual(Object.fromEntries(STAGES.map(s => [s.id, state.stages[s.id].agent])), CAST);
-  const launch = stage => { const c = w.calls.find(c => c[0] === "run" && c.includes(`pl-cat-cafe-${stage}`)); return c.slice(c.indexOf("--") + 1); };
+  const launch = stage => { const c = w.calls.find(c => c[0] === "run" && c.includes(T(stage))); return c.slice(c.indexOf("--") + 1); };
   assert.deepEqual(launch("research").slice(0, 3), ["grok", "--permission-mode", "auto"]);
   assert.deepEqual(launch("design").slice(0, 6), ["codex", "--no-daemon", "-a", "never", "-s", "workspace-write"]);
   assert.deepEqual(launch("test").slice(0, 3), ["claude", "--permission-mode", "auto"]);
@@ -258,7 +265,7 @@ test("a model that is not installed, or that failed once, is replaced by claude"
   assert.equal(state.stages.design.agent, "claude");   // the second try
   assert.equal(state.stages.assets.agent, "codex");
   assert.equal(state.stages.test.agent, "claude");
-  const designRuns = w.calls.filter(c => c[0] === "run" && c.includes("pl-cat-cafe-design")).map(c => c[c.indexOf("--") + 1]);
+  const designRuns = w.calls.filter(c => c[0] === "run" && c.includes(T("design"))).map(c => c[c.indexOf("--") + 1]);
   assert.deepEqual(designRuns, ["codex", "claude"]);
 });
 
@@ -277,4 +284,124 @@ test("settings can recast a stage and change how a model is started", () => {
   const a = agentFor(w.sys, "research");
   assert.equal(a.name, "claude");
   assert.deepEqual(a.argv("go"), ["claude", "--model", "opus", "go", "--verbose"]);
+});
+
+// ---- what the Codex review reproduced
+
+test("changing the mode while a stage runs is honored: production waits for approval", async () => {
+  let w;
+  w = world({ agent: stage => { if (stage === "internal") main(w.sys, parseArgs(["mode", "cat-cafe", "promote"])); return team(stage); } });
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  const state = await advance(w.sys, "cat-cafe");
+  assert.equal(state.mode, "promote");
+  assert.deepEqual(state.gate, { kind: "approve", stage: "release" });
+  assert.ok(!w.calls.some(c => c[0] === "run" && c.includes(T("release"))));
+});
+
+test("a stop made while a stage runs wins: its result is not taken and nothing else starts", async () => {
+  let w, stops = 0;
+  w = world({ agent: stage => { if (stage === "build" && stops++ === 0) main(w.sys, parseArgs(["stop", "cat-cafe"])); return team(stage); } });
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  const state = await advance(w.sys, "cat-cafe");
+  assert.equal(state.status, "stopped");
+  assert.equal(state.stages.build.status, "pending");
+  assert.ok(!w.calls.some(c => c[0] === "run" && c.includes(T("test"))));
+  assert.equal(w.live.size, 0);
+  // Continuing later starts from the stopped stage.
+  const again = await advance(w.sys, "cat-cafe", { until: "build" });
+  assert.equal(again.stages.build.status, "done");
+});
+
+test("a second conductor for the same app is refused while one is running", async () => {
+  let w, second;
+  w = world({ agent: stage => { if (stage === "research") second = advance(w.sys, "cat-cafe").then(() => "ran", e => e.message); return team(stage); } });
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  const state = await advance(w.sys, "cat-cafe");
+  assert.match(await second, /already running/);
+  assert.equal(state.status, "done");
+  assert.equal(w.calls.filter(c => c[0] === "run" && c.includes(T("release"))).length, 1);
+});
+
+test("switching to unattended while a choice is pending takes the saved options without rerunning", async () => {
+  const w = world({ agent: team });
+  await w.run("new", "Cat Cafe", "--mode", "review");
+  await advance(w.sys, "cat-cafe");
+  await w.run("mode", "cat-cafe", "auto");
+  const state = await advance(w.sys, "cat-cafe", { until: "brief" });
+  assert.equal(state.choice.research, "b");
+  assert.equal(state.stages.brief.status, "done");
+  assert.equal(w.calls.filter(c => c[0] === "run" && c.includes(T("research"))).length, 1);
+});
+
+test("an agent that was waiting for the person is taken over, not started again", async () => {
+  let stores = 0;
+  const w = world({ agent: stage => stage === "store" ? (stores++, { silent: true, hc: { state: "live", status: "blocked" } }) : team(stage) });
+  await w.run("new", "Cat Cafe", "--mode", "promote");
+  let state = await advance(w.sys, "cat-cafe");
+  assert.deepEqual(state.gate, { kind: "blocked", stage: "store" });
+  // The person answers it; the same agent then finishes its work.
+  w.live.set(T("store"), { state: "live", status: "idle" });
+  writeFileSync(join(w.root, "projects", "cat-cafe", "pipeline", "store", "result.json"), JSON.stringify({ status: "done", summary: "store ok after help" }));
+  state = await advance(w.sys, "cat-cafe");
+  assert.equal(stores, 1);
+  assert.equal(state.stages.store.summary, "store ok after help");
+  assert.equal(state.stages.store.tries, 1);
+  assert.deepEqual(state.gate, { kind: "approve", stage: "release" });
+});
+
+test("removing an app ends an agent that was waiting for the person", async () => {
+  const w = world({ agent: stage => stage === "research" ? { silent: true, hc: { state: "live", status: "blocked" } } : team(stage) });
+  await w.run("new", "Cat Cafe", "--mode", "auto");
+  await advance(w.sys, "cat-cafe");
+  assert.ok(w.live.has(T("research")));
+  await w.run("remove", "cat-cafe");
+  assert.equal(w.live.size, 0);
+  assert.deepEqual((await w.run("status")).apps, []);
+});
+
+test("terminal names fit hc's 32 characters and stay distinct for long, similar names", () => {
+  const a = terminalName("korean-language-flashcard-trainer", "research"), b = terminalName("korean-language-flashcard-trainer-2", "research");
+  assert.ok(a.length <= 32 && b.length <= 32, `${a} ${b}`);
+  assert.notEqual(a, b);
+  assert.ok(a.endsWith("-research"));
+});
+
+test("the Play key is stored owner-only from the first byte", { skip: process.platform === "win32" }, async () => {
+  const w = world({ key: false });
+  w.sys.platform = process.platform;
+  const keyPath = join(w.root, "key.json");
+  writeFileSync(keyPath, KEY, { mode: 0o644 });
+  await w.run("key", "set", keyPath);
+  assert.equal(statSync(join(w.sys.home, "secrets")).mode & 0o777, 0o700);
+  assert.equal(statSync(join(w.sys.home, "secrets", "play-key.json")).mode & 0o777, 0o600);
+});
+
+test("the listing upload can never reach production, and key paths are quoted", () => {
+  const read = name => readFileSync(join(here, "stages", name), "utf8");
+  const internal = read("internal.md"), release = read("release.md");
+  for (const line of internal.split("\n").filter(l => l.includes("fastlane supply"))) {
+    assert.ok(/--track internal/.test(line), line.slice(0, 80));
+  }
+  assert.ok(internal.includes("--skip_upload_apk") && release.includes("--skip_upload_apk"));
+  assert.ok(!/--json_key \{\{key\}\}/.test(internal + release) && !/json_key:\{\{key\}\}/.test(internal + release));
+});
+
+// ---- references
+
+test("references are classified, pictures are copied into the project, and every stage is told not to copy", async () => {
+  const tasks = {};
+  const w = world({ agent: (stage, ctx) => { tasks[stage] = ctx.task; return team(stage); } });
+  const shot = join(w.root, "shot.PNG");
+  writeFileSync(shot, "png");
+  const made = await w.run("new", "Cat Cafe", "--mode", "auto", "--ref", "https://play.google.com/store/apps/details?id=com.example.cafe", "--ref", "https://github.com/morluto/rea", "--ref", shot, "--ref", "like the cozy ones");
+  assert.deepEqual(made.refs.map(r => r.kind), ["play", "repo", "image", "note"]);
+  assert.equal(made.refs[2].file, "pipeline/refs/3.png");
+  assert.ok(existsSync(join(w.root, "projects", "cat-cafe", "pipeline", "refs", "3.png")));
+  await advance(w.sys, "cat-cafe", { until: "design" });
+  for (const stage of ["research", "brief", "design"]) {
+    assert.ok(tasks[stage].includes("com.example.cafe") && tasks[stage].includes("pipeline/refs/3.png"), stage);
+    assert.ok(tasks[stage].includes("References are for learning, not copying"), stage);
+  }
+  assert.ok(tasks.research.includes("references.md"));
+  assert.equal(reference("https://apps.apple.com/app/id1", "/x", 0).kind, "appstore");
 });

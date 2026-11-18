@@ -20,6 +20,12 @@ Open it from the **+** menu (**Auto app**) or with Ctrl+Shift+Y (Cmd+Shift+Y on 
 
 Apps are built with Flutter. Games follow this table in the brief stage: pixel, puzzle, ink-style 2D RPG and small idle games use Godot; 2D with heavy lighting and effects uses Unity or Godot; 3D tycoon, fishing and low-poly action use Unity + URP, which is also the default when unsure.
 
+## References
+
+Point it at what you want it to be like: Play Store or App Store links, repositories, web pages, or screenshots (drop them on the form). On the command line: `--ref <link or image>`, as many as you like.
+
+References are studied, not copied. Every stage is told the same rule: take the genre, the core loop and the flow; make the name, logo, characters, art, sounds, text and levels new, and never use a name or icon that could be confused with the original. A reference is looked at from the outside (its store page, screenshots, using it). Analysis tools such as REA may be used to understand how a feature behaves, never to take code, assets, text or data out of another app or to get around its protections. Repositories are used only as their license allows. The researcher writes what each reference does well (`pipeline/research/references.md`), the brief ends with how ours differs, and the designer replaces any direction that could be mistaken for a reference. If something could only be done by copying, the stage stops and says so.
+
 ## Which model does what
 
 Each teammate is a different CLI where that plays to its strength:
@@ -65,6 +71,13 @@ An app that has never been uploaded must exist in Play Console first; the releas
 - Stages hand over through files in `<project>/pipeline/`, not through context.
 - Each stage has a time budget and one retry; past that the pipeline stops and says why.
 - The conductor itself exits whenever it waits for you; the board starts it again when you choose.
+
+## What keeps it from releasing by accident
+
+- State is never held across a stage: before every decision the conductor reads the mode, approvals and stop request from disk, and every write is a short locked read-modify-write. Switching to "ask before production" or pressing Stop while a stage runs takes effect.
+- One conductor per app (a lock file names the process); a second one is refused.
+- The internal stage's fastlane commands all name `--track internal` and skip stray APKs; only the release stage promotes to production, and only in unattended mode or after you approve.
+- An agent that stopped to ask you something is kept and taken over when you continue, not started again. Removing an app ends its agents.
 
 ## Command line
 

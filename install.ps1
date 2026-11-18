@@ -60,12 +60,12 @@ if (Test-Path $app) {
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Warning 'Browser (Ctrl+Shift+U) needs Node.js 22+ and Chrome or Edge.' }
   "installed Herdr app pack -> $app"
   '  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)'
-  '  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u'
+  '  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u (press again: back/close)'
   '  Code highlighting ctrl+shift+h · Keyboard shortcuts ctrl+shift+k (cmd on macOS)'
 }
 'done.'

@@ -580,6 +580,40 @@ test("closing the Browser window ends its view terminal", async () => {
   assert.deepEqual(commands.at(-1), ["hc", "kill", "t31"]);
 });
 
+for (const [current, remembered, expected, stored] of [
+  ["neon-violet", undefined, "all-agents", "neon-violet"],
+  ["custom-layout", "neon-violet", "all-agents", "custom-layout"],
+  ["all-agents", "custom-layout", "custom-layout", undefined],
+  ["all-agents", "removed", "neon-violet", undefined],
+]) {
+  test(`ALL agents shortcut from ${current} switches to ${expected}`, () => {
+    const values = new Map([["layout", current], ["all-agents.return-layout", remembered]]);
+    const h = harness("nv-toggle-agents", { checking: () => false, props: () => ({ overlay: "o" }),
+      layouts: () => ["main", "neon-violet", "all-agents", "custom-layout"],
+      shared: k => values.get(k), setShared: (k, v) => values.set(k, v) });
+    assert.deepEqual(h.calls, [{ name: "layout.switch", args: { name: expected } }]);
+    if (stored) assert.equal(values.get("all-agents.return-layout"), stored);
+    else assert.equal(values.get("all-agents.return-layout"), remembered);
+  });
+}
+
+test("Pull requests shortcut closes this tab's PR pane, else opens one beside the focused terminal", () => {
+  const f = { space: "remote/s", tab: "remote/tab", pane: "remote/p", terminal: "remote/t3", cwd: "/repo" };
+  const open = harness("nv-toggle-prs", { checking: () => false, focused: () => f,
+    panes: () => [{ pane: "remote/p", tab: "remote/tab", terminal: "remote/t3" }, { pane: "p9", tab: "other", mod: "prs" }] });
+  assert.deepEqual(open.calls, [{ name: "pane.split", args: { direction: "right", pane: "remote/p", mod: "prs", props: { cwd: "/repo", on: "remote" } } }]);
+  const close = harness("nv-toggle-prs", { checking: () => false, focused: () => f,
+    panes: () => [{ pane: "remote/p", tab: "remote/tab", terminal: "remote/t3" }, { pane: "remote/p2", tab: "remote/tab", mod: "prs" }] });
+  assert.deepEqual(close.calls, [{ name: "pane.close", args: { pane: "remote/p2" } }]);
+});
+
+test("the pack's shortcuts toggle: ALL agents, Pull requests and Browser", () => {
+  const keys = JSON.parse(readFileSync(new URL("../keys.json", import.meta.url), "utf8"));
+  assert.equal(keys.global["ctrl-shift-a"], "mod.open:nv-toggle-agents");
+  assert.equal(keys.global["ctrl-shift-g"], "mod.open:nv-toggle-prs");
+  assert.equal(keys.global["ctrl-shift-u"], "mod.open:nv-browser");
+});
+
 test("the Chromium program is not duplicated among coding agents", async () => {
   const h = harness("nv-new-menu", { checking: () => false,
     knownAgents: async () => [{ key: "herdr-web-browser", installed: true }, { key: "claude", installed: true }],

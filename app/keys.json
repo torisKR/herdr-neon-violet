@@ -2,16 +2,10 @@
   "global": {
     "ctrl-shift-h": "mod.open:nv-code",
     "ctrl-shift-k": "mod.open:nv-shortcuts",
-    "ctrl-shift-a": "layout.switch:all-agents",
+    "ctrl-shift-a": "mod.open:nv-toggle-agents",
     "ctrl-shift-d": "mod.open:devices",
     "ctrl-shift-u": "mod.open:nv-browser",
-    "ctrl-shift-g": {
-      "command": "pane.split",
-      "args": {
-        "direction": "right",
-        "mod": "prs"
-      }
-    },
+    "ctrl-shift-g": "mod.open:nv-toggle-prs",
     "ctrl-shift-m": "mod.open:devices"
   },
   "layout:all-agents": {

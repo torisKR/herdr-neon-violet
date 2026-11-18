@@ -49,7 +49,7 @@ if [ -d "$app" ]; then
   cp "$here/app/usage/nv-usage.mjs" "$app/bin/nv-usage.mjs"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
-  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$app/mods/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$app/mods/"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
   # Browser setup is optional; a missing toolchain/download must not interrupt the pack migration.
   if command -v cargo >/dev/null 2>&1 && command -v git >/dev/null 2>&1; then
@@ -61,7 +61,7 @@ if [ -d "$app" ]; then
   fi
   echo "installed Herdr app pack -> $app"
   echo "  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)"
-  echo "  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u"
+  echo "  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u (press again: back/close)"
   echo "  Code highlighting ctrl+shift+h · Keyboard shortcuts ctrl+shift+k (cmd on macOS)"
 fi
 echo "done. iTerm2: import terminal/neon-violet.itermcolors (Settings > Profiles > Colors > Color Presets)."

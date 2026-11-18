@@ -8,14 +8,17 @@
 // Open it as a tab: tab.new { mod: "nv-pipeline" } (Ctrl+Shift+Y).
 import { View, div, image } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { appHome, checking, exec, pickFolder, props, run, settings, shared, setShared, theme, window } from "herdr";
+import { appHome, checking, exec, knownAgents, pickFolder, props, run, settings, shared, setShared, terminals, theme, window } from "herdr";
 
 const POLL_MS = 2000;
+// What a desk can be doing, in the order the summary line counts them. "quiet" and "stalled" are a
+// stage the state file calls running whose agents are not: reported idle, or left without a conductor.
+const STATES = ["working", "quiet", "stalled", "needs", "pending", "done", "failed"];
 // The person's login shell (as in bin/nv-pipeline.mjs): $SHELL when POSIX-style, else zsh on macOS, bash, sh.
 const LOGIN = 's="${SHELL:-}"; case "$s" in */zsh|*/bash|*/sh|*/dash|*/ksh) [ -x "$s" ] || s= ;; *) s= ;; esac; ' +
   'if [ -z "$s" ]; then if [ "$(uname)" = Darwin ] && [ -x /bin/zsh ]; then s=/bin/zsh; elif [ -x /bin/bash ]; then s=/bin/bash; else s=/bin/sh; fi; fi; ' +
   'exec "$s" -lc \'exec "$@"\' sh "$@"';
-const TOP_H = 40, CANVAS_H = 200, NOTE_H = 26;
+const TOP_H = 40, CANVAS_H = 200, NOTE_H = 26, SUMMARY_H = 26;
 const TEXT = {
   en: { title: "App pipeline", add: "+ New app", key: "Play key", keyMissing: "Play key needed", chat: "Team chat", say: "Tell the team something…", send: "Send",
     name: "App name (optional: taken from the folder)", idea: "What should it be? Describe the service, or name a reference (empty: find what is trending)",
@@ -28,8 +31,17 @@ const TEXT = {
     pick: "Choose one", choose: "Click to choose", chosen: "Chosen", recommended: "Recommended", approve: "Promote to production", approveHelp: "The tested build goes to production (20% rollout).",
     blocked: "This teammate is stuck and needs you.", watch: "Watch the agent", retry: "Run again", stop: "Stop", resume: "Continue", remove: "Remove from the board",
     status: { pending: "waiting", running: "working", done: "done", failed: "failed", waiting: "needs you", blocked: "needs you" },
+    state: { working: "Working", quiet: "Not responding", stalled: "Stalled", needs: "Needs you", pending: "Waiting", done: "Done", failed: "Failed" },
+    stalled: "This run stopped on its own: nothing is conducting it. Press Continue to pick it up where it was.",
+    quiet: "The agent reports that it is not working and has written no result. The conductor is reminding it; open its screen to see why.",
+    gone: "That agent's terminal has ended.", peek: "Show", keep: "Open as tab", conductor: "Conductor log",
+    part: { worker: "Worker", lead: "Lead", review: "Reviewer" }, round: "round",
+    team: "Team: who does each stage", teamHelp: "Agents installed on this computer. Click a model to switch, ×n for several working at once, and a reviewer to have another model check the work.",
+    teamLoading: "Checking installed agents and their models…", model: "model", unset: "default", review: "review", none: "none",
+    modelInput: "Type a model name for the selected role and press Enter (empty: the CLI's default)",
     you: "You", shipped: "Store", needsYou: "needs you", score: "score",
-    feed: { start: "Starting.", "start.again": "Trying again.", "ask.pick": "Please choose one.", "ask.approve": "Ready for production. Approve?", "ask.key": "I need the Play service account key.", "ask.blocked": "I am stuck and need you.",
+    feed: { start: "Starting.", "start.again": "Trying again.", "review.start": "The reviewer is checking the work.", "review.pass": "The review passed.", "review.skip": "The reviewer did not finish; going on without a review.",
+      round: "Round {arg}: fixing what was found.", "loop.build": "{arg} defect(s) back to the developer, then I test again.", "ask.pick": "Please choose one.", "ask.approve": "Ready for production. Approve?", "ask.key": "I need the Play service account key.", "ask.blocked": "I am stuck and need you.",
       "pick.auto": "Chose \"{arg}\" (unattended).", "pick.person": "Go with \"{arg}\".", approve: "Approved. Ship it.", done: "Shipped. The pipeline is finished." } },
   ko: { title: "앱 파이프라인", add: "+ 새 앱", key: "Play 키", keyMissing: "Play 키 필요", chat: "팀 대화", say: "팀에게 한마디…", send: "보내기",
     name: "앱 이름 (선택: 비우면 폴더 이름)", idea: "어떤 서비스를 만들까요? 설명이나 레퍼런스를 적어 주세요 (비우면 유행하는 것에서 찾음)",
@@ -42,8 +54,17 @@ const TEXT = {
     pick: "하나를 골라 주세요", choose: "눌러서 선택", chosen: "선택됨", recommended: "추천", approve: "프로덕션으로 승격", approveHelp: "테스트한 빌드가 프로덕션으로 갑니다(20% 단계 출시).",
     blocked: "이 팀원이 막혀서 도움이 필요합니다.", watch: "에이전트 화면 보기", retry: "다시 실행", stop: "중단", resume: "계속", remove: "보드에서 빼기",
     status: { pending: "대기", running: "작업 중", done: "완료", failed: "실패", waiting: "확인 필요", blocked: "확인 필요" },
+    state: { working: "작업 중", quiet: "응답 없음", stalled: "멈춤", needs: "확인 필요", pending: "대기", done: "완료", failed: "실패" },
+    stalled: "이 실행은 혼자 멈췄습니다. 진행시키는 지휘자가 없습니다. 「계속」을 누르면 멈춘 곳에서 이어집니다.",
+    quiet: "에이전트가 일하지 않는다고 보고했고 결과도 쓰지 않았습니다. 지휘자가 재촉하는 중이니, 화면을 열어 이유를 확인하세요.",
+    gone: "그 에이전트의 터미널은 이미 끝났습니다.", peek: "화면 보기", keep: "탭으로 열기", conductor: "지휘자 로그",
+    part: { worker: "작업자", lead: "리드", review: "검토자" }, round: "라운드",
+    team: "팀 구성: 단계마다 누가 할지", teamHelp: "이 컴퓨터에 설치된 에이전트입니다. 모델을 누르면 바뀌고, ×n 은 동시에 일하는 인원, 검토는 다른 모델이 결과를 확인하게 합니다.",
+    teamLoading: "설치된 에이전트와 모델을 확인하는 중…", model: "모델", unset: "기본", review: "검토", none: "없음",
+    modelInput: "선택한 역할의 모델 이름을 직접 입력하고 Enter (비우면 CLI 기본값)",
     you: "나", shipped: "스토어", needsYou: "확인 필요", score: "점수",
-    feed: { start: "시작합니다.", "start.again": "다시 해 봅니다.", "ask.pick": "하나를 골라 주세요.", "ask.approve": "프로덕션에 올릴 준비가 됐습니다. 승인할까요?", "ask.key": "Play 서비스 계정 키가 필요합니다.", "ask.blocked": "막혔습니다. 도와주세요.",
+    feed: { start: "시작합니다.", "start.again": "다시 해 봅니다.", "review.start": "검토자가 결과를 확인합니다.", "review.pass": "검토를 통과했습니다.", "review.skip": "검토자가 끝내지 못해 검토 없이 진행합니다.",
+      round: "{arg}라운드: 지적된 것을 고칩니다.", "loop.build": "결함 {arg}건을 개발자에게 돌려보내고 다시 테스트합니다.", "ask.pick": "하나를 골라 주세요.", "ask.approve": "프로덕션에 올릴 준비가 됐습니다. 승인할까요?", "ask.key": "Play 서비스 계정 키가 필요합니다.", "ask.blocked": "막혔습니다. 도와주세요.",
       "pick.auto": "\"{arg}\" 로 정했습니다 (무인).", "pick.person": "\"{arg}\" 로 갑시다.", approve: "승인. 출시합시다.", done: "출시했습니다. 파이프라인을 마쳤습니다." } },
 };
 const language = value => { const k = String(value ?? "").trim().toLowerCase().split(/[-_]/)[0]; return Object.hasOwn(TEXT, k) ? k : null; };
@@ -85,6 +106,11 @@ function sprite(rows, colors, px) {
   }));
 }
 
+/** A cast as the conductor reads it: claude, claude:opus, codex*2. */
+const castSpec = v => `${v.agent}${v.model ? `:${v.model}` : ""}${v.count > 1 ? `*${v.count}` : ""}`;
+/** The next value after `current` in a list, wrapping around. */
+const after = (list, current) => list[(list.indexOf(current) + 1) % list.length];
+
 /** "3m", "2h": how long ago, short. */
 function ago(iso, now = Date.now()) {
   const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
@@ -109,9 +135,62 @@ export default class Pipeline extends View {
     if (props()?.create) { this.form = { kind: "auto", mode: "promote" }; if (props().dir) this.dirInput.set_value(String(props().dir)); }
     this.sayInput = InputState.new({ placeholder: copy().say });
     this.sayInput.on("submit", (_e, cx) => this.say(cx));
+    this.catalog = null;      // nv-pipeline agents: the CLIs of this machine, their models, the default team
+    this.team = {};           // the form's changes to the default team: { [stage]: { agent, model, count, review } }
+    this.teamStage = null;    // the role a typed model name goes to
+    this.modelInput = InputState.new({ placeholder: copy().modelInput });
+    this.modelInput.on("submit", (_e, cx) => {
+      if (!this.teamStage) return;
+      this.setTeam(this.teamStage, { model: this.modelInput.value().trim() || null });
+      this.modelInput.set_value("");
+      cx.notify();
+    });
     if (checking()) return;
     cx.timer.every(POLL_MS, cx => this.load(cx));
     this.load(cx);
+    this.loadCatalog(cx);
+  }
+
+  /** The agents that can be cast. CLIs the + menu knows but the pipeline does not are added first. */
+  loadCatalog(cx) {
+    cx.spawn(async cx => {
+      try {
+        let r = await this.nv(["agents"]);
+        if (r.code !== 0) { this.note = this.errorOf(r); cx.notify(); return; }
+        let catalog = JSON.parse(r.stdout);
+        const known = typeof knownAgents === "function" ? await knownAgents({ on: null }).catch(() => []) : [];
+        const bins = new Set(catalog.agents.flatMap(a => [a.name, a.bin]));
+        let added = false;
+        for (const a of known) {
+          const bin = String(a.run?.[0] ?? "").split(/[\\/]/).at(-1).replace(/\.(exe|cmd)$/i, "");
+          const name = String(a.key ?? bin).toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+          if (!a.installed || !bin || !name || bins.has(bin) || bins.has(name) || a.key === "herdr-web-browser") continue;
+          const made = await this.nv(["agents", "add", name, ...a.run]);
+          if (made.code === 0) { added = true; bins.add(bin); bins.add(name); }
+        }
+        if (added) { r = await this.nv(["agents"]); if (r.code === 0) catalog = JSON.parse(r.stdout); }
+        this.catalog = catalog;
+      } catch (error) { this.note = String(error.message ?? error); }
+      cx.notify();
+    });
+  }
+
+  /** A stage's cast as the form shows it: the default, with what the person changed. */
+  teamOf(stageId) {
+    const base = this.catalog?.team?.[stageId] ?? {};
+    return { agent: base.agent ?? "", model: null, count: 1, review: base.review ?? "none", split: Boolean(base.split), ...(this.team[stageId] ?? {}) };
+  }
+  setTeam(stageId, patch) { this.team = { ...this.team, [stageId]: { ...(this.team[stageId] ?? {}), ...patch } }; this.teamStage = stageId; }
+
+  /** The form's team as --cast / --review flags, only for what differs from the default. */
+  castFlags() {
+    const flags = [];
+    for (const id of Object.keys(this.team)) {
+      const base = this.catalog?.team?.[id] ?? {}, v = this.teamOf(id);
+      if (v.agent !== base.agent || v.model || v.count > 1) flags.push("--cast", `${id}=${castSpec(v)}`);
+      if (v.review !== (base.review ?? "none")) flags.push("--review", `${id}=${v.review}`);
+    }
+    return flags;
   }
 
   tool() { return `${appHome()}/bin/nv-pipeline.mjs`; }
@@ -173,11 +252,11 @@ export default class Pipeline extends View {
     cx.spawn(async cx => {
       try {
         const refs = [...this.refsInput.value().split(/[\s,]+/).filter(Boolean), ...this.refImages];
-        const r = await this.nv(["new", name, "--idea", idea, "--kind", kind, "--mode", mode, ...(dir ? ["--dir", dir] : []), ...refs.flatMap(x => ["--ref", x])]);
+        const r = await this.nv(["new", name, "--idea", idea, "--kind", kind, "--mode", mode, ...(dir ? ["--dir", dir] : []), ...refs.flatMap(x => ["--ref", x]), ...this.castFlags()]);
         if (r.code !== 0) { this.note = this.errorOf(r); cx.notify(); return; }
         const made = JSON.parse(r.stdout);
         this.select(made.id);
-        this.form = null; this.note = null;
+        this.note = null; this.team = {}; this.teamStage = null;
         this.nameInput.set_value(""); this.ideaInput.set_value(""); this.dirInput.set_value(""); this.refsInput.set_value(""); this.refImages = [];
         const listed = await this.nv(["status", made.id]);
         await this.resume(made.id, listed.code === 0 ? JSON.parse(listed.stdout).apps[0]?.dir : undefined);
@@ -186,7 +265,36 @@ export default class Pipeline extends View {
     });
   }
 
-  select(id) { this.selected = id; this.focus = null; setShared("nv.pipeline.app", id); }
+  /** Shows an app's board. The new-app form is closed: it hides the board, so a click on a running
+   *  app while the form was open used to change nothing on screen. */
+  select(id) { this.selected = id; this.focus = null; this.form = null; setShared("nv.pipeline.app", id); }
+
+  /** What a stage is really doing (one of STATES): the state file's word, corrected by what the
+   *  conductor saw of its agents' terminals. */
+  stateOf(app, stageId) {
+    const s = app.state, rec = s.stages?.[stageId] ?? { status: "pending" };
+    if (["waiting", "blocked"].includes(rec.status) || s.gate?.stage === stageId) return "needs";
+    if (rec.status === "running") return app.activity?.[stageId] ?? "working";
+    return STATES.includes(rec.status) ? rec.status : "pending";
+  }
+  /** The run has no conductor although its state says running: it goes on only when continued. */
+  stalled(app) { return app.state.status === "running" && app.conducted === false; }
+  stateColor(key, t) { return { working: t.working, quiet: t.ansi3 ?? t.blocked, stalled: t.blocked, needs: t.blocked, failed: t.blocked, done: t.done, pending: t.dim }[key] ?? t.dim; }
+
+  /** The terminals of a stage that are still there, the one of the working member first. */
+  liveTerminals(app, rec) {
+    const all = [...new Set([rec?.terminal, ...(rec?.members ?? []).map(m => m.terminal)].filter(Boolean))];
+    return all.filter(t => !["gone"].includes(app.live?.[t]));
+  }
+
+  /** A desk was clicked: its details show, and when an agent is at it, so does the agent's screen. */
+  open(app, stageId, cx) {
+    this.focus = stageId;
+    const rec = app.state.stages?.[stageId] ?? {}, terminal = this.liveTerminals(app, rec)[0];
+    if (terminal) { this.note = null; run("terminal.peek", { terminal }); }
+    else if (rec.status === "running") this.note = copy().gone;
+    cx.notify();
+  }
 
   say(cx) {
     const app = this.app(), text = this.sayInput.value().trim();
@@ -236,12 +344,14 @@ export default class Pipeline extends View {
     return h_flex().h(40).flex_none().px(12).gap(8).items_center().bg(t.chrome).border_b_1().border_color(t.border)
       .child(div().font_semibold().text_size(13).flex_none().child(l.title))
       .child(h_flex().flex_1().min_w(0).gap(4).overflow_hidden().children(this.data.apps.filter(a => a.state).map(a => {
-        const active = a.id === this.app()?.id, live = a.state.status === "running" || a.state.status === "waiting";
+        // The chip pulses only while something is really going on; a run that stopped on its own is red and still.
+        const active = a.id === this.app()?.id && !this.form, stalled = this.stalled(a), live = !stalled && (a.state.status === "running" || a.state.status === "waiting");
         return h_flex().id(`app-${a.id}`).px(9).py(3).gap(6).rounded(12).items_center().cursor_pointer().flex_none()
           .bg(active ? t.selected : t.raised).text_color(active ? t.foreground : t.muted).hover(s => s.bg(t.hover))
           .on_click((_e, cx) => { this.select(a.id); cx.notify(); })
-          .child(div().w(7).h(7).rounded_full().bg(dot(a.state.status)).when(live, el => el.loop("opacity", { from: 0.35, to: 1, period: 1100 })))
-          .child(a.state.name);
+          .child(div().w(7).h(7).rounded_full().bg(stalled ? t.blocked : dot(a.state.status)).when(live, el => el.loop("opacity", { from: 0.35, to: 1, period: 1100 })))
+          .child(a.state.name)
+          .when(stalled, el => el.child(div().text_size(10).text_color(t.blocked).child(l.state.stalled)));
       })))
       .child(div().id("key-chip").px(9).py(3).rounded(12).text_size(11).flex_none().bg(t.raised).text_color(key.present ? t.done : t.blocked)
         .child(key.present ? `${l.key} ✓ ${String(key.email).split("@")[0]}` : l.keyMissing))
@@ -258,7 +368,9 @@ export default class Pipeline extends View {
     const chips = (id, values, labels, current, set) => h_flex().gap(4).children(values.map(v => this.button(`${id}-${v}`, labels[v], cx => { set(v); cx.notify(); }, t, { active: current === v })));
     const field = state => h_flex().h(30).px(8).rounded(6).bg(t.raised).items_center().child(Input.new(state).w_full().h_full().text_size(13).text_color(t.foreground));
     const hasKey = this.data.key.present;
-    return v_flex().id("new-form").flex_none().p(14).gap(10).mx(12).my(10).rounded(10).bg(t.surface).border_1().border_color(t.border)
+    // The team section makes the form tall: it scrolls inside the tab instead of running off it.
+    const room = Math.max(320, (this.size?.height ?? 900) - TOP_H - (this.note ? NOTE_H : 0) - 20);
+    return v_flex().id("new-form").flex_none().max_h(room).overflow_y_scrollbar().p(14).gap(10).mx(12).my(10).rounded(10).bg(t.surface).border_1().border_color(t.border)
       .when(!hasKey, el => el.child(this.keyDrop(t, l)))
       .child(div().font_semibold().text_size(13).child(l.auto))
       .child(h_flex().gap(8).items_center()
@@ -277,9 +389,40 @@ export default class Pipeline extends View {
       .child(chips("kind", ["auto", "app", "game"], l.kind, this.form.kind, v => { this.form.kind = v; }))
       .child(chips("mode", ["auto", "promote", "review"], l.mode, this.form.mode, v => { this.form.mode = v; }))
       .child(div().text_size(11).text_color(t.muted).child(l.modeHelp[this.form.mode]))
+      .child(this.teamForm(t, l))
       .child(h_flex().gap(8)
         .child(this.button("start", hasKey ? l.start : l.startNoKey, cx => this.create(cx), t, { primary: true }))
         .child(this.button("cancel", l.cancel, cx => { this.form = null; cx.notify(); }, t)));
+  }
+
+  /** One role's cast as a row of chips: which agent, its model, how many at once, who reviews.
+   *  `value` is { agent, model, count, review, split }; `set` gets what a click changes. */
+  teamRow(key, stage, value, set, t, l, selected = false) {
+    const agents = (this.catalog?.agents ?? []).filter(a => a.installed), chosen = agents.find(a => a.name === value.agent);
+    const chip = (id, label, onClick, { active = false, tint = null } = {}) => div().id(id).px(7).py(2).rounded(5).flex_none().text_size(11).cursor_pointer()
+      .bg(active ? t.accent : t.raised).text_color(active ? t.accent_foreground : tint ?? t.muted).hover(s => s.opacity(0.85))
+      .on_click((_e, cx) => { onClick(cx); cx.notify(); }).child(label);
+    const reviewers = ["none", ...agents.map(a => a.name)], current = String(value.review ?? "none");
+    return h_flex().id(`${key}-${stage.id}`).gap(5).px(6).py(3).rounded(6).items_center().flex_wrap().bg(selected ? t.selected : t.surface)
+      .child(div().w(84).flex_none().text_size(12).font_semibold().text_color(t[HUE[stage.id]] ?? t.accent).truncate().child(roleName(stage)))
+      .children(agents.map(a => chip(`${key}-${stage.id}-agent-${a.name}`, a.name, cx => set({ agent: a.name, model: null }, cx), { active: a.name === value.agent })))
+      .when(Boolean(chosen?.model), el => el.child(chip(`${key}-${stage.id}-model`, `${l.model}: ${value.model ?? l.unset}`,
+        cx => set({ model: after([null, ...chosen.models], value.model ?? null) }, cx), { tint: value.model ? t.foreground : null })))
+      .when(Boolean(value.split), el => el.child(chip(`${key}-${stage.id}-count`, `×${value.count}`,
+        cx => set({ count: value.count >= (this.catalog?.maxWorkers ?? 4) ? 1 : value.count + 1 }, cx), { tint: value.count > 1 ? t.foreground : null })))
+      .child(chip(`${key}-${stage.id}-review`, `${l.review}: ${current === "none" ? l.none : current}`,
+        cx => set({ review: after(reviewers, reviewers.includes(current.split(":")[0]) ? current.split(":")[0] : "none") }, cx), { tint: current === "none" ? null : t.done }));
+  }
+
+  /** The team section of the new-app form: every role, cast before the start. */
+  teamForm(t, l) {
+    const box = v_flex().id("team-form").gap(3).p(8).rounded(8).border_1().border_color(t.border)
+      .child(div().font_semibold().text_size(12).child(l.team));
+    if (!this.catalog) return box.child(div().id("team-loading").text_size(11).text_color(t.dim).child(l.teamLoading));
+    return box
+      .child(div().text_size(11).text_color(t.dim).child(l.teamHelp))
+      .children(this.data.stages.map(stage => this.teamRow("team", stage, this.teamOf(stage.id), patch => this.setTeam(stage.id, patch), t, l, this.teamStage === stage.id)))
+      .child(h_flex().h(26).px(8).rounded(6).bg(t.raised).items_center().child(Input.new(this.modelInput).w_full().h_full().text_size(12).text_color(t.foreground)));
   }
 
   /** The office: every teammate at a desk. The one working bobs at a glowing screen with its latest
@@ -292,21 +435,24 @@ export default class Pipeline extends View {
     const shownId = this.focus ?? s.gate?.stage ?? s.stage;
     const lastNote = id => { const e = [...app.feed].reverse().find(e => e.from === id && (e.kind === "note" || e.kind === "start")); return e ? (l.feed[e.code] ?? e.text) : ""; };
     const desk = (stage, index) => {
-      const rec = s.stages[stage.id] ?? { status: "pending" };
-      const working = rec.status === "running", needs = ["waiting", "blocked"].includes(rec.status) || s.gate?.stage === stage.id;
-      const done = rec.status === "done", failed = rec.status === "failed", asleep = rec.status === "pending" && !needs;
+      const rec = s.stages[stage.id] ?? { status: "pending" }, key = this.stateOf(app, stage.id), cast = app.team?.[stage.id];
+      // Only an agent that is really working bobs at a lit screen. One that went quiet, or whose
+      // run stalled, sits still under a red mark, like one that needs you.
+      const working = key === "working", stuck = key === "quiet" || key === "stalled", needs = key === "needs" || stuck;
+      const done = key === "done", failed = key === "failed", asleep = key === "pending";
       const shown = shownId === stage.id, color = t[HUE[stage.id]] ?? t.accent;
       const colors = { h: HAIR[index % HAIR.length], s: "#f1c9a5", e: "#1b1b1f", b: color, d: "#3a3550" };
       const person = sprite(asleep ? ASLEEP : PERSON, colors, PX);
-      const bubbleText = working ? (lastNote(stage.id) || l.status.running) : needs ? "!" : failed ? "✕" : done ? "✓" : "";
+      const bubbleText = working ? (lastNote(stage.id) || l.state.working) : stuck ? l.state[key] : needs ? "!" : failed ? "✕" : done ? "✓" : "";
       const bubble = div().h(20).max_w(150).px(6).rounded(8).flex_none().flex().items_center().text_size(10).truncate()
         .bg(working ? t.raised : needs || failed ? t.blocked : done ? t.done : t.canvas)
         .text_color(working ? t.foreground : needs || failed || done ? t.background : t.dim);
       const screen = div().w(22).h(15).rounded(2).flex_none().bg(working ? color : needs ? t.blocked : t.raised);
+      const people = (rec.members ?? []).filter(m => m.part !== "review").length || cast?.count || 1;
       return v_flex().id(`stage-${stage.id}`).w(156).h(172).pt(8).gap(4).rounded(12).flex_none().cursor_pointer().items_center()
         .bg(shown ? t.selected : t.canvas).border_1().border_color(needs ? t.blocked : working ? color : shown ? t.input : t.canvas)
         .hover(el => el.bg(t.hover))
-        .on_click((_e, cx) => { this.focus = stage.id; cx.notify(); })
+        .on_click((_e, cx) => this.open(app, stage.id, cx))
         .child(asleep ? bubble.frames(["z", "zZ", "zZz", ""], 700)
           : needs ? bubble.child(bubbleText).loop("top", { from: 0, to: -5, period: 420 })
           : bubble.child(bubbleText))
@@ -318,9 +464,11 @@ export default class Pipeline extends View {
         .child(div().w(112).h(6).rounded(2).flex_none().bg(working ? color : t.border))
         .child(h_flex().gap(5).items_center()
           .child(div().font_semibold().text_size(12).truncate().child(roleName(stage)))
-          .child(div().px(4).rounded(4).text_size(9).bg(t.raised).text_color(color).child(rec.agent ?? stage.agent ?? "")))
-        .child(div().text_size(10).truncate().text_color(needs || failed ? t.blocked : working ? t.working : done ? t.done : t.dim)
-          .child(needs ? l.needsYou : `${l.status[rec.status] ?? rec.status}${rec.endedAt && done ? ` · ${ago(rec.endedAt, now)}` : ""}`));
+          .child(div().px(4).rounded(4).text_size(9).bg(t.raised).text_color(color).child(`${rec.agent ?? cast?.agent ?? stage.agent ?? ""}${people > 1 ? ` ×${people}` : ""}`)))
+        // The state as a filled badge, so working, waiting and done read at a glance.
+        .child(div().id(`state-${stage.id}`).px(7).py(1).rounded(8).text_size(10).font_semibold().truncate()
+          .bg(asleep ? t.raised : this.stateColor(key, t)).text_color(asleep ? t.muted : t.background)
+          .child(`${l.state[key]}${rec.round > 1 ? ` · ${l.round} ${rec.round}` : ""}${rec.endedAt && done ? ` · ${ago(rec.endedAt, now)}` : ""}`));
     };
     // Between desks: a line that lights up once work has passed it, and an envelope flying across during a hand-off.
     const link = (from, passed) => {
@@ -342,6 +490,21 @@ export default class Pipeline extends View {
     row.push(link("release", s.status === "done"), end("end-store", l.shipped, s.status === "done", "▲"));
     return div().id("team-canvas").h(CANVAS_H).w_full().flex_none().bg(t.canvas).border_b_1().border_color(t.border)
       .child(h_flex().id("team-row").size_full().px(14).items_center().overflow_x_scrollbar().children(row));
+  }
+
+  /** One line above the office: how many desks are working, waiting, done, and whether the run itself stalled. */
+  summary(app, t, l) {
+    const counts = Object.fromEntries(STATES.map(k => [k, 0]));
+    for (const stage of this.data.stages) counts[this.stateOf(app, stage.id)]++;
+    const stalled = this.stalled(app);
+    return h_flex().id("state-summary").h(SUMMARY_H).w_full().flex_none().px(14).gap(12).items_center().text_size(11).bg(t.canvas)
+      .children(STATES.filter(k => counts[k] > 0 || ["working", "pending", "done"].includes(k)).map(k => h_flex().id(`count-${k}`).gap(5).items_center().flex_none()
+        .child(div().w(8).h(8).rounded_full().bg(k === "pending" ? t.muted : this.stateColor(k, t)))
+        .child(div().text_color(counts[k] ? t.foreground : t.dim).child(`${l.state[k]} ${counts[k]}`))))
+      .child(div().flex_1())
+      .when(stalled, el => el
+        .child(div().id("stalled-note").flex_none().text_color(t.blocked).truncate().child(l.stalled))
+        .child(this.button("continue-stalled", l.resume, cx => cx.spawn(async cx => { await this.resume(app.id); this.load(cx); }), t, { primary: true })));
   }
 
   /** What they told each other: hand-offs, notes, questions for you. Yours sit on the right. */
@@ -384,15 +547,41 @@ export default class Pipeline extends View {
         .child(div().text_size(10).text_color(chosen ? t.accent : o.recommended ? t.done : t.dim).child(chosen ? l.chosen : o.recommended ? l.recommended : picking ? l.choose : ""));
       return picking ? card.cursor_pointer().hover(st => st.bg(t.hover)).on_click((_e, cx) => this.command(cx, ["pick", app.id, o.id], { resume: true })) : card;
     });
-    const resting = ["idle", "paused", "stopped", "failed"].includes(s.status);
+    const stalled = this.stalled(app), resting = ["idle", "paused", "stopped", "failed"].includes(s.status) || stalled;
+    const key = this.stateOf(app, id), cast = app.team?.[id], live = this.liveTerminals(app, rec);
+    // Everyone at this desk: the lead, the workers, the reviewer; each with its screen one click away.
+    const members = (rec.members ?? []).map(m => {
+      const there = m.terminal && live.includes(m.terminal), word = there ? app.live?.[m.terminal] : null;
+      return h_flex().id(`member-${m.part}-${m.id || "one"}`).gap(8).px(8).py(4).rounded(6).items_center().bg(t.surface)
+        .child(div().w(64).flex_none().text_size(11).font_semibold().child(`${l.part[m.part] ?? m.part}${m.id && m.part === "worker" ? ` ${m.id.replace("w", "")}` : ""}`))
+        .child(div().px(5).rounded(4).text_size(10).bg(t.raised).text_color(t.accent).child(`${m.agent ?? ""}${m.model ? `:${m.model}` : ""}`))
+        .child(div().flex_1().text_size(11).truncate().text_color(m.status === "done" ? t.done : m.status === "running" ? (word === "working" || word === "live" ? t.working : t.blocked) : t.muted)
+          .child(m.status === "running" ? (word === "working" || word === "live" ? l.state.working : there ? l.state.quiet : l.state.stalled) : l.status[m.status] ?? m.status ?? ""))
+        .when(Boolean(there), el => el
+          .child(this.button(`peek-${m.part}-${m.id || "one"}`, l.peek, () => run("terminal.peek", { terminal: m.terminal }), t))
+          .child(this.button(`keep-${m.part}-${m.id || "one"}`, l.keep, () => run("terminal.keep", { terminal: m.terminal, place: "tab" }), t)));
+    });
+    const conductorName = `pipe-${s.tag ?? app.id.slice(0, 20)}`, conductor = app.conducted ? terminals().find(x => x.name === conductorName)?.address : null;
+    const recast = (patch, cx) => {
+      const next = { agent: cast.agent, model: cast.model, count: cast.count, review: cast.review, ...patch };
+      this.command(cx, ["cast", app.id, id, `${next.agent}${next.model ? `:${next.model}` : ""}*${next.count}`, "--review", next.review]);
+    };
     return v_flex().id("detail").w(640).h(height).flex_none().p(12).gap(10).overflow_y_scrollbar().border_l_1().border_color(t.border)
       .child(h_flex().gap(8).items_center()
         .child(this.avatar(id, stage?.role ?? "", t, 26))
         .child(div().font_semibold().text_size(13).child(roleName(stage)))
-        .child(div().px(5).rounded(4).text_size(10).bg(t.raised).text_color(t.accent).child(rec.agent ?? stage?.agent ?? ""))
-        .child(div().text_size(11).text_color(t.muted).child(l.status[rec.status] ?? rec.status ?? ""))
+        .child(div().px(5).rounded(4).text_size(10).bg(t.raised).text_color(t.accent).child(`${rec.agent ?? cast?.agent ?? stage?.agent ?? ""}${cast?.model ? `:${cast.model}` : ""}`))
+        .child(div().id("detail-state").px(7).py(1).rounded(8).text_size(10).font_semibold().bg(key === "pending" ? t.raised : this.stateColor(key, t)).text_color(key === "pending" ? t.muted : t.background).child(l.state[key]))
         .child(div().flex_1())
-        .when(Boolean(rec.terminal), el => el.child(this.button("watch", l.watch, () => run("terminal.peek", { terminal: rec.terminal }), t))))
+        .when(Boolean(conductor), el => el.child(this.button("conductor", l.conductor, () => run("terminal.peek", { terminal: conductor }), t)))
+        .when(live.length > 0, el => el.child(this.button("watch", l.watch, () => run("terminal.peek", { terminal: live[0] }), t))))
+      .when(stalled, el => el.child(v_flex().id("stalled").gap(6).p(10).rounded(10).bg(t.surface).border_1().border_color(t.blocked)
+        .child(div().text_size(12).text_color(t.blocked).child(l.stalled))
+        .child(h_flex().child(this.button("continue-stalled-detail", l.resume, cx => cx.spawn(async cx => { await this.resume(app.id); this.load(cx); }), t, { primary: true })))))
+      .when(key === "quiet", el => el.child(div().id("quiet").text_size(12).text_color(t.blocked).child(l.quiet)))
+      .when(members.length > 0, el => el.child(v_flex().id("members").gap(4).children(members)))
+      .when(rec.status === "pending" && Boolean(cast) && Boolean(this.catalog) && Boolean(stage), el => el.child(
+        this.teamRow("cast", stage, { ...cast, split: Boolean(this.catalog.team?.[id]?.split) }, recast, t, l)))
       .when(picking, el => el.child(div().font_semibold().text_color(t.blocked).child(l.pick)))
       .when(gate?.kind === "approve", el => el.child(v_flex().gap(6).p(10).rounded(10).bg(t.surface).border_1().border_color(t.blocked)
         .child(div().text_size(12).child(l.approveHelp))
@@ -418,7 +607,7 @@ export default class Pipeline extends View {
 
   render() {
     const t = theme(), l = copy(), app = this.app();
-    const body = Math.max(220, (this.size?.height ?? 900) - TOP_H - CANVAS_H - (this.note ? NOTE_H : 0));
+    const body = Math.max(220, (this.size?.height ?? 900) - TOP_H - SUMMARY_H - CANVAS_H - (this.note ? NOTE_H : 0));
     return v_flex().id("nv-pipeline").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12)
       .on_size_change((size, cx) => { this.size = size; cx.notify(); })
       .on_drop((e, cx) => this.dropKey(e.paths, cx))
@@ -430,6 +619,7 @@ export default class Pipeline extends View {
         .when(!this.data.key.present, x => x.child(this.keyDrop(t, l)))
         .child(this.button("new-app-empty", l.add, cx => { this.form = { kind: "auto", mode: "promote" }; cx.notify(); }, t, { primary: true }))))
       .when(Boolean(app) && !this.form, el => el
+        .child(this.summary(app, t, l))
         .child(this.canvas(app, t, l))
         .child(h_flex().w_full().h(body).flex_none().child(this.chat(app, t, l, body)).child(this.detail(app, t, l, body))));
   }

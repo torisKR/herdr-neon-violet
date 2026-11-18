@@ -59,6 +59,13 @@ if [ -d "$app" ]; then
   else
     echo "warning: Browser setup needs Rust/Cargo and Git. Install them, then run ./scripts/install-browser.sh." >&2
   fi
+  # Agent skill: how Claude Code / Codex drive Herdr, hc and the browser (only where those agents are set up).
+  for skills in "$HOME/.claude/skills" "$HOME/.agents/skills"; do
+    if [ -d "$skills" ]; then
+      mkdir -p "$skills/herdr-hc" && cp "$here/skills/herdr-hc/SKILL.md" "$skills/herdr-hc/SKILL.md"
+      echo "installed skill herdr-hc -> $skills/herdr-hc"
+    fi
+  done
   echo "installed Herdr app pack -> $app"
   echo "  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)"
   echo "  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u (press again: back/close)"

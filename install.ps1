@@ -63,6 +63,15 @@ if (Test-Path $app) {
   foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
   if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Warning 'Browser (Ctrl+Shift+U) needs Node.js 22+ and Chrome or Edge.' }
+  # Agent skill: how Claude Code / Codex drive Herdr, hc and the browser (only where those agents are set up).
+  foreach ($skills in (Join-Path $env:USERPROFILE '.claude\skills'), (Join-Path $env:USERPROFILE '.agents\skills')) {
+    if (Test-Path $skills) {
+      $dest = Join-Path $skills 'herdr-hc'
+      New-Item -ItemType Directory -Force $dest | Out-Null
+      Copy-Item (Join-Path $here 'skills\herdr-hc\SKILL.md') (Join-Path $dest 'SKILL.md') -Force
+      "installed skill herdr-hc -> $dest"
+    }
+  }
   "installed Herdr app pack -> $app"
   '  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)'
   '  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u (press again: back/close)'

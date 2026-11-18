@@ -628,6 +628,51 @@ for (const [platform, focusedTerminal, expected, app = "claude-code"] of [
   });
 }
 
+for (const [platform, answer, expected] of [
+  ["windows", "files", ["terminal.paste_image", "powershell", "terminal.paste"]],
+  ["windows", "none", ["terminal.paste_image", "powershell"]],
+  ["macos", "text", ["osascript", "terminal.paste"]],
+  ["macos", "files", ["osascript", "terminal.paste"]],
+]) {
+  test(`${platform} clipboard answering "${answer}" pastes once`, async () => {
+    const steps = [];
+    const h = harness("nv-paste", { checking: () => false, window: () => ({ platform }), props: () => ({ overlay: "o" }),
+      run: name => steps.push(name), exec: async command => { steps.push(command); return ok(answer); } });
+    await h.settle();
+    assert.deepEqual(steps, expected);
+  });
+}
+
+test("the file is not pasted into a terminal the person moved to meanwhile", async () => {
+  const steps = [];
+  let where = "t3";
+  const h = harness("nv-paste", { checking: () => false, window: () => ({ platform: "windows" }), props: () => ({ overlay: "o" }),
+    focused: () => ({ space: "s", tab: "tab", pane: "p", terminal: where, cwd: "/repo" }),
+    run: name => steps.push(name), exec: async command => { steps.push(command); where = "t4"; return ok("image"); } });
+  await h.settle();
+  assert.deepEqual(steps, ["terminal.paste_image", "powershell"]);
+});
+
+test("a second press while the first is still converting pastes text only", async () => {
+  const steps = [], values = new Map([["nv.paste.at", Date.now()]]), closed = [];
+  const h = harness("nv-paste", { checking: () => false, window: () => ({ platform: "windows" }), props: () => ({ overlay: "o" }),
+    shared: k => values.get(k), setShared: (k, v) => values.set(k, v), closeOverlay: id => closed.push(id),
+    run: name => steps.push(name), exec: async command => { steps.push(command); return ok("image"); } });
+  await h.settle();
+  assert.deepEqual(steps, ["terminal.paste_image"]);
+  assert.deepEqual(closed, ["o"]);
+});
+
+test("a home folder with a quote reaches PowerShell as one quoted argument", async () => {
+  const calls = [];
+  const h = harness("nv-paste", { checking: () => false, window: () => ({ platform: "windows" }), appHome: () => "C:/Users/o'neil/.config/herdr-app",
+    run() {}, exec: async (command, args) => { calls.push(args); return ok("none"); } });
+  await h.settle();
+  const arg = calls[0].at(-1);
+  assert.ok(arg.includes("} 'C:\\Users\\o''neil\\.config\\herdr-app\\paste\\"), arg.slice(-80));
+  assert.ok(arg.endsWith(".png'"));
+});
+
 test("on Windows a text clipboard is pasted once, without a second file paste", async () => {
   const steps = [];
   const h = harness("nv-paste", { checking: () => false, window: () => ({ platform: "windows" }), props: () => ({ overlay: "o" }),

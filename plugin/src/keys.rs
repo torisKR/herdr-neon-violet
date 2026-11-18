@@ -31,7 +31,9 @@ fn superseded(section: &str, key: &str, current: &Value) -> bool {
     match (section, key) {
         ("global", "ctrl-shift-a") => current == "layout.switch:all-agents",
         ("global", "ctrl-shift-g") => *current == serde_json::json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}}),
-        ("terminal", "ctrl-v") => current == "terminal.paste_image" || current == "terminal.paste",
+        // Herdr's own default for this key on each platform; Linux programs read the clipboard themselves.
+        ("terminal", "ctrl-v") if cfg!(target_os = "macos") => current == "terminal.paste",
+        ("terminal", "ctrl-v") if cfg!(windows) => current == "terminal.paste_image",
         _ => false,
     }
 }
@@ -135,8 +137,8 @@ mod tests {
     #[test]
     fn only_untouched_old_defaults_become_toggles() {
         assert!(superseded("global", "ctrl-shift-a", &json!("layout.switch:all-agents")));
-        assert!(superseded("terminal", "ctrl-v", &json!("terminal.paste_image")));
-        assert!(superseded("terminal", "ctrl-v", &json!("terminal.paste")));
+        assert_eq!(superseded("terminal", "ctrl-v", &json!("terminal.paste_image")), cfg!(windows));
+        assert_eq!(superseded("terminal", "ctrl-v", &json!("terminal.paste")), cfg!(target_os = "macos"));
         assert!(!superseded("terminal", "ctrl-v", &json!("send:0016")));
         assert!(!superseded("global", "ctrl-v", &json!("terminal.paste")));
         assert!(superseded("global", "ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}})));

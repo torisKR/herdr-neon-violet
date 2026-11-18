@@ -5,9 +5,10 @@
 // On Windows Herdr's own Ctrl+V pastes clipboard text and passes Ctrl+V on (Codex reads an image itself,
 // Claude Code does not); on macOS the image depended on the program reading the clipboard itself.
 import { View, div } from "gpui-kit";
-import { agents, appHome, checking, closeOverlay, exec, focused, props, run, terminals, window } from "herdr";
+import { agents, appHome, checking, closeOverlay, exec, focused, props, run, setShared, shared, terminals, window } from "herdr";
 
 // Windows PowerShell: what the clipboard holds; an image alone is saved and offered as a file too.
+// Screenshots can hold secrets, so saved ones older than a day are removed on the next save.
 const WINDOWS = `param($out)
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 $c = [Windows.Forms.Clipboard]
@@ -16,13 +17,14 @@ if ($c::ContainsFileDropList()) { 'files'; exit }
 $img = $c::GetImage()
 if (-not $img) { 'none'; exit }
 New-Item -ItemType Directory -Force (Split-Path $out) | Out-Null
+Get-ChildItem (Split-Path $out) -Filter *.png | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-1) } | Remove-Item -ErrorAction SilentlyContinue
 $img.Save($out, [Drawing.Imaging.ImageFormat]::Png)
 $d = New-Object Windows.Forms.DataObject
 $d.SetImage($img)
 $files = New-Object Collections.Specialized.StringCollection
 [void]$files.Add($out)
 $d.SetFileDropList($files)
-$c::SetDataObject($d, $true)
+$c::SetDataObject($d, $true, 10, 100)
 'image'`;
 
 // macOS (JavaScript for Automation), same answers; the clipboard then holds the PNG file and the
@@ -40,7 +42,12 @@ const MACOS = `function run(argv) {
     if (tiff.isNil()) return "none";
     data = $.NSBitmapImageRep.imageRepWithData(tiff).representationUsingTypeProperties($.NSBitmapImageFileTypePNG, $({}));
   }
-  $.NSFileManager.defaultManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError($(out).stringByDeletingLastPathComponent, true, $(), $());
+  const fm = $.NSFileManager.defaultManager, dir = $(out).stringByDeletingLastPathComponent;
+  fm.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(dir, true, $(), $());
+  for (const name of ObjC.deepUnwrap(fm.contentsOfDirectoryAtPathError(dir, $())) || []) {
+    const path = dir.js + "/" + name, at = fm.attributesOfItemAtPathError(path, $());
+    if (!at.isNil() && name.endsWith(".png") && at.objectForKey("NSFileModificationDate").timeIntervalSinceNow < -86400) fm.removeItemAtPathError(path, $());
+  }
   if (!data.writeToFileAtomically(out, true)) return "none";
   const item = $.NSPasteboardItem.alloc.init;
   item.setStringForType($.NSURL.fileURLWithPath(out).absoluteString, "public.file-url");
@@ -78,6 +85,8 @@ export default class Paste extends View {
     const overlay = props()?.overlay;
     const done = () => { if (overlay) closeOverlay(overlay); };
     if (checking()) return done();
+    // The file is pasted only where the press happened: moving to another terminal meanwhile cancels it.
+    const stillHere = () => focused()?.terminal === f?.terminal;
     const platform = window().platform;
     const remote = Boolean(f?.terminal?.includes("/"));
     const file = `${appHome()}/paste/${Date.now()}.png`;
@@ -88,18 +97,26 @@ export default class Paste extends View {
       run(platform === "macos" ? "terminal.paste" : "terminal.paste_image");
       return done();
     }
+    // A second press while the first is still working would save and paste the image twice.
+    const last = Number(shared("nv.paste.at") ?? 0);
+    if (Date.now() - last < 1500) {
+      if (how === "windows") run("terminal.paste_image");   // text still pastes; only the image step is skipped
+      return done();
+    }
+    setShared("nv.paste.at", Date.now());
     if (how === "windows") run("terminal.paste_image");   // text goes in at once
     cx.spawn(async () => {
       try {
         if (how === "windows") {
           const r = await exec("powershell", ["-NoProfile", "-NonInteractive", "-STA", "-Command", `& { ${WINDOWS} } '${file.replaceAll("/", "\\").replaceAll("'", "''")}'`], { timeout: 15000 });
           const kind = r.stdout.trim();
-          if (kind === "image" || kind === "files") run("terminal.paste");
+          if ((kind === "image" || kind === "files") && stillHere()) run("terminal.paste");
         } else {
           await exec("osascript", ["-l", "JavaScript", "-e", MACOS, file], { timeout: 15000 }).catch(() => null);
-          run("terminal.paste");
+          if (stillHere()) run("terminal.paste");
         }
       } catch { /* the clipboard could not be read: nothing more to paste */ }
+      setShared("nv.paste.at", 0);
       done();
     });
   }

@@ -23,12 +23,17 @@ fn old_browser(action: &Value) -> bool {
     argv.len() == 2 && argv[1] == "browse" && ["/herdr-app/bin/nv", "/herdr-app/bin/nv.exe", "/plugin/bin/nv", "/plugin/bin/nv.exe"].iter().any(|suffix| path.ends_with(suffix))
 }
 
-/// Earlier pack defaults that a newer pack default replaces when the person never changed them:
-/// ALL agents and Pull requests became toggles (press again to go back / close).
-fn superseded(key: &str, current: &Value) -> bool {
-    match key {
-        "ctrl-shift-a" => current == "layout.switch:all-agents",
-        "ctrl-shift-g" => *current == serde_json::json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}}),
+/// Earlier defaults (the pack's or Herdr's) that a newer pack default replaces when the person never
+/// changed them: ALL agents and Pull requests became toggles (press again to go back / close), and
+/// the terminal paste key (Ctrl+V; Cmd+V on macOS, where `key` is still the additions' ctrl name)
+/// now turns a screenshot into a file the agents can attach.
+fn superseded(section: &str, key: &str, current: &Value) -> bool {
+    match (section, key) {
+        ("global", "ctrl-shift-a") => current == "layout.switch:all-agents",
+        ("global", "ctrl-shift-g") => *current == serde_json::json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}}),
+        // Herdr's own default for this key on each platform; Linux programs read the clipboard themselves.
+        ("terminal", "ctrl-v") if cfg!(target_os = "macos") => current == "terminal.paste",
+        ("terminal", "ctrl-v") if cfg!(windows) => current == "terminal.paste_image",
         _ => false,
     }
 }
@@ -93,7 +98,7 @@ pub fn main(args: &[String]) -> i32 {
                 }
                 // An older version of this pack bound the browser to a Node script that no longer exists.
                 let stale = slot.get(&name).map(|c| c.to_string().contains("browse.mjs") || action == "mod.open:nv-browser" && old_browser(c)
-                    || section == "global" && superseded(key, c)).unwrap_or(false);
+                    || superseded(section, key, c)).unwrap_or(false);
                 match slot.get(&name) {
                     Some(current) if current != action && !stale => kept.push(format!("{section} {name}")),
                     _ => {
@@ -131,11 +136,15 @@ mod tests {
 
     #[test]
     fn only_untouched_old_defaults_become_toggles() {
-        assert!(superseded("ctrl-shift-a", &json!("layout.switch:all-agents")));
-        assert!(superseded("ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}})));
-        assert!(!superseded("ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"down","mod":"prs"}})));
-        assert!(!superseded("ctrl-shift-a", &json!("layout.switch:main")));
-        assert!(!superseded("ctrl-shift-x", &json!("layout.switch:all-agents")));
+        assert!(superseded("global", "ctrl-shift-a", &json!("layout.switch:all-agents")));
+        assert_eq!(superseded("terminal", "ctrl-v", &json!("terminal.paste_image")), cfg!(windows));
+        assert_eq!(superseded("terminal", "ctrl-v", &json!("terminal.paste")), cfg!(target_os = "macos"));
+        assert!(!superseded("terminal", "ctrl-v", &json!("send:0016")));
+        assert!(!superseded("global", "ctrl-v", &json!("terminal.paste")));
+        assert!(superseded("global", "ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}})));
+        assert!(!superseded("global", "ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"down","mod":"prs"}})));
+        assert!(!superseded("global", "ctrl-shift-a", &json!("layout.switch:main")));
+        assert!(!superseded("global", "ctrl-shift-x", &json!("layout.switch:all-agents")));
     }
 
     #[test]

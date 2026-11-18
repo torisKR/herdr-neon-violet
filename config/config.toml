@@ -1,4 +1,4 @@
-# herdr-neon-violet — config.toml
+# herdr-toris-neon — config.toml
 # macOS/Linux : ~/.config/herdr/config.toml
 # Windows     : %APPDATA%\herdr\config.toml
 # Apply without restart: `herdr server reload-config` (or prefix+shift+r)

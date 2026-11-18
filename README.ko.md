@@ -1,198 +1,93 @@
-# herdr-neon-violet
+# herdr-toris-neon
 
 [English](README.md) · **한국어** · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Français](README.fr.md)
 
-[herdr](https://herdr.dev)(AI 코딩 에이전트용 터미널 작업 공간)를 위한 보라색 네온 테마와 플러그인 묶음입니다. **ALL agents** 보드, **Devices** 팝업(adb·에뮬레이터·iOS 시뮬레이터), **터미널 안 브라우저**, SSH 너머 복사 설정, 터미널 색 구성이 들어 있습니다.
+AI 코딩 에이전트를 위한 데스크톱 앱이자 터미널인 [Herdr](https://herdr.dev) 용 작업 공간 팩입니다. 에이전트 팀이 앱을 기획하고, 만들고, 테스트하고, 출시하는 모습을 Herdr 안에서 지켜볼 수 있습니다. 픽셀 팀 보드가 있는 앱 파이프라인, 에이전트가 직접 다루는 진짜 브라우저, 풀 리퀘스트, 기기 목록, 사용량, 네온 바이올렛 테마가 들어 있습니다.
 
-![ALL agents board](docs/agents.png)
+![앱 파이프라인: 책상에 앉은 팀원들, 왼쪽은 팀 대화, 오른쪽은 고를 디자인 시안](docs/pipeline.png)
 
 ## 들어 있는 것
 
-| 기능 | 단축키 | 설명 |
+| 기능 | 여는 법 | 하는 일 |
 | --- | --- | --- |
-| 보라색 네온 테마 | | herdr 화면 전체 색, 사이드바의 에이전트 줄 구성 |
-| ALL agents | `prefix` `a` | 지금 돌고 있는 에이전트를 한 탭에 모두 타일로 표시 |
-| Devices | `prefix` `d` | adb 기기, 안드로이드 에뮬레이터, iOS 시뮬레이터 목록 |
-| 브라우저 | `prefix` `u` | 터미널 안에서 웹 페이지 읽기 (SSH 너머에서도 동작) |
-| 파일과 PR | `prefix` `f` | 미리보기가 있는 파일 트리와 저장소의 PR: 읽기, 댓글, 머지 |
-| 에이전트 이동 | `prefix` `,` / `prefix` `.` | 이전 / 다음 에이전트로 이동 |
-| SSH 너머 복사 | 드래그 | 원격 창의 글자를 드래그하면 내 컴퓨터 클립보드로 복사 |
+| **Auto app** | + 메뉴 → Auto app · `Ctrl/Cmd+Shift+Y` | 폴더와 아이디어를 주면 에이전트 팀이 리서치, 기획, 디자인, 개발, 기기 테스트, 스토어 자료 준비, fastlane 배포까지 진행합니다. |
+| **Inspect 가 있는 브라우저** | `Ctrl/Cmd+Shift+U` | Herdr 안의 진짜 Chrome/Edge 입니다. 에이전트는 자기 탭을 다루고, 사람은 요소를 클릭해 바꿀 내용을 적어 에이전트에게 보냅니다. |
+| **ALL agents** | `Ctrl/Cmd+Shift+A` | 실행 중인 모든 에이전트의 터미널을 한 화면에 봅니다. 다시 누르면 돌아옵니다. |
+| **풀 리퀘스트** | `Ctrl/Cmd+Shift+G` | 터미널 옆에서 저장소의 PR 을 읽고, 댓글을 달고, 머지합니다. |
+| **기기 목록** | `Ctrl/Cmd+Shift+D` | adb 기기(USB, Wi-Fi), Android 에뮬레이터, iOS 시뮬레이터를 이 컴퓨터와 연결된 컴퓨터에서 봅니다. |
+| **파일, 편집기, 코드** | Files · `Ctrl/Cmd+Shift+H` | 파일 트리와 편집기, Markdown/HTML 미리보기, 코드 하이라이팅입니다. |
+| **AI 사용량** | + 메뉴 → AI 사용량 | Claude 와 Codex 의 토큰, 예상 비용, 한도를 여러 컴퓨터에 걸쳐 봅니다. |
+| **캡처 붙여넣기** | `Ctrl+V` · `Cmd+V` | 클립보드의 캡처가 Claude Code 나 Codex 에 이미지로 들어갑니다. 다른 컴퓨터의 터미널에도 됩니다. |
+| **업데이트** | + 메뉴 → 업데이트 | GitHub 의 최신 버전을 받아 설치하고, 진행 상황을 화면에 보여 줍니다. |
+| **에이전트 스킬** | Claude Code 와 Codex 에 설치됨 | `herdr-hc` 스킬이 `hc` 오케스트레이션, 창 조작, 브라우저 사용법을 에이전트에게 알려 줍니다. |
+| **네온 바이올렛 테마** |  | 앱과 터미널 herdr 의 색, 그리고 어울리는 터미널 색 구성입니다. |
 
-`prefix`의 기본값은 `ctrl+b`입니다.
+## Auto app: 아이디어에서 스토어까지
 
-## 화면
+- + 메뉴에서 **Auto app** 을 열고, 프로젝트 폴더를 고르고, 무엇을 만들지 적습니다. 레퍼런스(플레이스토어 링크, 저장소, 스크린샷)가 있으면 함께 넣습니다.
+- 팀원 아홉 명이 차례로 일합니다: 리서처, 기획자, 디자이너, 아티스트, 개발자, QA, 마케터, 릴리스 매니저, 퍼블리셔. 각자 새 에이전트로 시작해 작업 지시서 하나를 읽고 결과 하나를 쓰므로 대화가 쌓이지 않습니다.
+- 모델마다 잘하는 일을 맡습니다. Grok 은 리서치, Codex 는 그림, Claude 는 기획·개발·배포입니다. 없거나 실패한 모델은 Claude 가 대신합니다.
+- 얼마나 물어볼지 고릅니다: **무인**, **승격만 확인**(기본), **모두 확인**. 기획 후보와 디자인 시안은 카드로 떠서 눌러 고릅니다.
+- 앱은 Flutter 로, 게임은 장르에 따라 Godot 또는 Unity + URP 로 만듭니다. 배포는 Play 내부 테스트 트랙을 거쳐 프로덕션으로 갑니다.
+- 레퍼런스는 참고만 하고 베끼지 않습니다. 장르와 핵심 루프는 가져오고, 이름·그림·문구는 새로 만듭니다.
 
-**기본 화면.** 사이드바 아래쪽에 에이전트가 급한 순서(막힘 → 작업 중 → 완료 → 대기)로 나옵니다.
+자세한 내용: [앱 파이프라인](docs/PIPELINE.md).
 
-![main](docs/main.png)
+## 브라우저: 보고, 가리키고, 고치게 하기
 
-**Devices.** 연결된 기기와 아직 켜지 않은 에뮬레이터·시뮬레이터를 한 번에 봅니다. `enter`로 꺼져 있는 것을 켜고, `y`로 기기 ID를 복사합니다.
+![브라우저 창: 실시간으로 그려지는 페이지, 주소줄, 실행 중인 에이전트가 보이는 Inspect 패널](docs/browser-chrome.png)
 
-![devices](docs/devices.png)
+- macOS·Linux 에 그래픽 런타임이 있으면 herdr-web-browser 를 쓰고, 그 밖의 경우와 Windows 에서는 설치된 Chrome 이나 Edge 를 별도 프로필로 다룹니다.
+- 에이전트는 `nv-web` 을 씁니다: `open`, `snapshot`, `click`, `type`, `inspect`, `console --errors`, `network --failed`, 그리고 고칠 스타일을 먼저 적용해 보는 `css`.
+- **Inspect** 는 클릭한 요소(선택자, 스타일, 개발 빌드의 소스 파일, 테두리를 표시한 스크린샷)를 고른 에이전트에게 보냅니다.
 
-**브라우저.** 오른쪽에 창을 나눠 페이지를 글자로 보여 줍니다. 링크 번호를 누르고 `enter`를 치면 이동합니다.
+자세한 내용: [브라우저와 문서 미리보기](docs/BROWSER.md).
 
-![browser](docs/browser.png)
+## 에이전트, 풀 리퀘스트, 기기
 
-> 캡처의 에이전트 대화와 기기 목록은 `demo/` 폴더의 예시 데이터로 만든 것입니다.
+![ALL agents 보드](docs/agents.png)
+
+![기기 목록](docs/devices.png)
 
 ## 설치
 
-herdr 0.9.5 이상이 필요합니다. 도구들은 작은 Rust 실행 파일 `nv` 하나입니다. 설치 스크립트가 Rust가 있으면 빌드하고, 없으면 미리 빌드된 파일을 내려받습니다. PR 기능에는 GitHub CLI(`gh`)가 필요합니다.
+Herdr 데스크톱 앱(또는 터미널 herdr 0.9.5 이상), Node.js 22 이상, Git 이 필요합니다. 파이프라인은 설치된 에이전트 CLI(`claude`, `codex`, `grok`)를 쓰고, 배포에는 fastlane 을 씁니다. 풀 리퀘스트에는 GitHub CLI(`gh`)가 필요합니다.
 
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/torisKR/herdr-neon-violet.git
-cd herdr-neon-violet
+git clone https://github.com/torisKR/herdr-toris-neon.git
+cd herdr-toris-neon
 ./install.sh
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/torisKR/herdr-neon-violet.git
-cd herdr-neon-violet
+git clone https://github.com/torisKR/herdr-toris-neon.git
+cd herdr-toris-neon
 .\install.ps1
 ```
 
-설치 스크립트가 하는 일은 세 가지입니다.
+설치 스크립트는 herdr 설정과 단축키를 바꾸기 전에 백업하고, 테마·레이아웃·모드·단축키를 설치합니다. 직접 바꾼 단축키는 건드리지 않습니다. 그 뒤로는 + 메뉴의 **업데이트** 로 최신 상태를 유지합니다.
 
-1. 기존 herdr 설정을 `config.toml.bak-날짜`로 백업하고 `config/config.toml`을 설치합니다.
-2. `plugin/` 폴더를 herdr 플러그인으로 연결합니다 (`herdr plugin link`).
-3. 터미널 색 구성을 넣습니다 (Ghostty 테마 또는 Windows Terminal 색 구성표).
+## 터미널 herdr 플러그인
 
-플러그인만 쓰려면 저장소를 받지 않고 바로 설치할 수 있습니다. 단축키는 `config/config.toml`의 `[[keys.command]]` 부분을 내 설정에 복사하면 됩니다.
+같은 팩을 터미널 herdr 에서도 씁니다: `prefix a` ALL agents, `prefix d` 기기 목록, `prefix u` 텍스트 브라우저, `prefix f` 파일과 풀 리퀘스트(`prefix` 는 `ctrl+b`). 원격 패널에서 글자를 끌면 내 컴퓨터의 클립보드에 복사됩니다.
 
 ```bash
-herdr plugin install torisKR/herdr-neon-violet/plugin
+herdr plugin install torisKR/herdr-toris-neon/plugin
 ```
-
-### 터미널 색 맞추기
-
-herdr 창 안쪽 배경은 바깥 터미널의 배경색을 그대로 씁니다. 그래서 터미널에도 같은 색을 넣어야 캡처처럼 보입니다.
-
-| 터미널 | 파일 | 적용 방법 |
-| --- | --- | --- |
-| Ghostty | `terminal/ghostty-neon-violet` | `~/.config/ghostty/themes/neon-violet`로 복사하고 설정에 `theme = neon-violet` 추가 |
-| iTerm2 | `terminal/neon-violet.itermcolors` | Settings → Profiles → Colors → Color Presets → Import |
-| Windows Terminal | `terminal/windows-terminal.json` | `install.ps1`이 넣어 줍니다. 터미널을 다시 켠 뒤 프로필의 색 구성표에서 「Neon Violet」 선택 |
-
-## Herdr 데스크톱 앱
-
-Herdr 데스크톱 앱용 묶음은 `app/` 폴더에 있습니다. 설치 스크립트는 `~/.config/herdr-app` 폴더가 있으면 그 안에 복사하고, 이미 쓰고 있는 키는 바꾸지 않은 채 단축키만 `keys.json`에 더합니다.
-
-| 구성 | 단축키 | 설명 |
-| --- | --- | --- |
-| 테마 `neon-violet` | | 앱에도 같은 색을 씁니다. 설정에서 고르거나 `herdr-app do app.theme --name neon-violet` 실행 |
-| 레이아웃 `all-agents` | `ctrl+shift+a` | 모든 에이전트의 실제 터미널을 한 화면에 격자로 표시(급한 것이 앞). `ctrl+shift+l`로 레이아웃을 되돌립니다 |
-| Devices | `ctrl+shift+d` | 이 컴퓨터와 연결된 모든 머신의 기기·에뮬레이터·시뮬레이터. 꺼져 있는 것을 누르면 켜집니다 |
-| 브라우저 | `ctrl+shift+u` | macOS/Linux에서 실제 Chromium을 엽니다(클릭·입력·에이전트 조작). Windows는 글자 브라우저를 유지합니다 |
-| 레이아웃 `neon-violet` | `ctrl+shift+l` | 창 흐림과 반투명을 적용한 기본 레이아웃 |
-| Pull requests | `ctrl+shift+g` | 지금 있는 저장소의 열린 PR: 설명, 바뀐 파일, 댓글. 패널에서 댓글과 머지를 합니다 |
-| 코드 하이라이팅 | `ctrl+shift+h` | 코드 붙여 넣기, 구문 색상·줄 번호·접기 |
-| 단축키 모음 | `ctrl+shift+k` | 현재 단축키·동작·적용 범위 검색 |
-| AI 사용량 | `+` → AI 사용량 | 이 컴퓨터와 연결된 PC·서버의 토큰·모델별 추정 비용·계정 한도 ([안내](docs/AI-USAGE.md)) |
-
-`neon-violet` 레이아웃에서는 오른쪽 위 `+` 버튼에도 이 도구들(ALL agents, Devices, Code highlighting, Keyboard shortcuts, Pull requests, Browser)이 나옵니다. Files 패널에서 파일을 누르면 메인 영역에 편집기 탭으로 열립니다: 구문 강조, 줄 번호, 접기, 편집과 `ctrl+s` 저장, Markdown 미리보기. 다른 머신의 파일은 읽기 전용으로 열립니다. Mermaid 다이어그램은 그림이 아니라 원문으로 보입니다.
-
-macOS에서는 이 묶음의 모든 단축키가 `ctrl` 대신 `cmd`입니다. `cmd+shift+d`가 이미 창 나누기에 쓰이는 경우 Devices는 `cmd+shift+m`입니다.
-
-`all-agents` 레이아웃에서는:
-
-- 위쪽 칩을 누르거나 `ctrl+d` 완료, `ctrl+w` 작업 중, `ctrl+i` 대기, `ctrl+b` 막힘, `ctrl+a` 전체로 상태별로 골라 봅니다.
-- 이 레이아웃이 떠 있는 동안 이 다섯 키는 필터가 가져가므로 터미널 안의 프로그램에는 전달되지 않습니다.
-- 카드 머리줄을 누르면 해당 에이전트로 이동하고, “Back to Herdr”를 누르면 보드에서 나옵니다. `+` 메뉴에서 들어왔다면 둘 다 이전 레이아웃으로 돌아가 메뉴 도구가 유지됩니다. 직접 들어온 경우 Neon Violet이 설치되어 있으면 해당 레이아웃으로 돌아갑니다.
-
-어두운 테마입니다. 앱이 항상 밝은 모양을 쓰도록 설정돼 있으면 설정에서 어둡게 바꿔야 테마가 보입니다. 앱에서는 원래 글자를 드래그하면 복사되고, 원격 머신의 터미널도 마찬가지입니다.
-
-## SSH 너머에서 드래그로 복사하기
-
-설정에 `copy_on_select = true`가 들어 있어서, herdr 안에서 글자를 드래그하면 바로 복사됩니다. 원격 컴퓨터에 접속해 있을 때 복사된 글자가 어디로 가는지는 접속 방법에 따라 다릅니다.
-
-- **`herdr --remote <호스트>` 또는 저장한 머신으로 접속한 경우.** 화면을 그리는 herdr가 내 컴퓨터에서 돌기 때문에 내 클립보드로 바로 들어갑니다. 따로 할 일이 없습니다.
-- **`ssh`로 들어간 뒤 그 안에서 `herdr`를 실행한 경우.** herdr가 OSC 52라는 터미널 신호로 글자를 내보내고, 내 터미널이 그것을 받아 클립보드에 넣습니다. 터미널이 이 신호를 허용해야 합니다.
-  - iTerm2: Settings → General → Selection → "Applications in terminal may access clipboard" 켜기
-  - Ghostty: `clipboard-write = allow`
-  - macOS 기본 터미널(Terminal.app)은 OSC 52를 지원하지 않습니다. 이 경우 위의 `herdr --remote` 방식을 쓰세요.
-
-## ALL agents
-
-`prefix` `a`를 누르면 「ALL agents」 탭이 열립니다. 이미 열려 있으면 그 탭으로 이동합니다.
-
-- 에이전트마다 카드 하나가 나오고, 최근 출력이 1.5초마다 갱신됩니다.
-- 급한 순서로 정렬됩니다: 막힘(BLOCKED) → 작업 중(WORKING) → 완료(DONE) → 대기(IDLE).
-- 상태별로 골라 볼 수 있습니다: `ctrl+d` 완료, `ctrl+w` 작업 중, `ctrl+i` 대기, `ctrl+a` 전체. 글자만 눌러도(`d`, `w`, `i`, `a`) 되고, `b`는 막힌 에이전트를 보여 줍니다.
-- 숫자 `1`~`9`를 누르면 그 에이전트가 있는 창으로 이동합니다. `q`로 닫습니다.
-- 이 보드는 보드가 열린 herdr 서버의 에이전트만 보여 줍니다. 다른 머신의 에이전트는 사이드바에서 확인하세요.
-
-## 파일과 PR
-
-`prefix` `f`를 누르면 방금 있던 창의 폴더를 기준으로 탭이 열립니다. 마우스도 됩니다: 줄을 클릭하고, 양쪽을 각각 스크롤합니다.
-
-| 키 | 파일 | PR |
-| --- | --- | --- |
-| `↑` `↓` / `j` `k` | 이동 | 이동 |
-| `enter` 또는 클릭 | 파일 열기, 폴더 펼치기 | PR 열기 |
-| `←` | 접기, 또는 상위 폴더로 | |
-| `space` / `b` | 미리보기 스크롤 | PR 내용 스크롤 |
-| `c` | | 댓글 쓰기 |
-| `m` | | 머지. 먼저 물어봅니다: `y`로 머지, `s`로 squash·merge·rebase 전환 |
-| `o` | | GitHub에서 열기 |
-| `y` | 경로 복사 | |
-| `tab` | PR로 전환 | 파일로 전환 |
-
-Herdr 데스크톱 앱에는 파일 탐색기가 이미 있어서(오른쪽 위 Files 버튼), 앱에는 PR 패널만 더했습니다.
-
-## 코드 하이라이팅과 단축키 모음
-
-`+`에서 **코드 하이라이팅**을 선택하거나 `ctrl+shift+h`를 누릅니다. 코드를 붙여 넣고 구문 언어를 고르면 색상 강조·줄 번호·코드 접기를 사용할 수 있습니다. 구문 강조와 줄 바꿈을 켜고 끌 수 있고, 초안은 이 컴퓨터에 저장됩니다.
-
-`+`의 **단축키 모음** 또는 `ctrl+shift+k`로 현재 Herdr 단축키를 봅니다. 사용자 지정 키도 포함하며 키·동작·적용 범위로 검색합니다. macOS에서는 두 단축키 모두 `ctrl` 대신 `cmd`를 씁니다.
-
-두 도구와 `+` 메뉴는 영어·일본어·중국어 간체·한국어를 지원합니다. 각 도구 아래에서 언어를 선택하거나 “Herdr 설정 따르기”로 앱의 `language`/`locale`을 따르게 할 수 있습니다.
-
-## Devices
-
-`prefix` `d`로 엽니다. 창이 떠 있는 컴퓨터에서 다음을 읽어 옵니다.
-
-- `adb devices -l`: 연결된 안드로이드 기기와 실행 중인 에뮬레이터 (안드로이드 버전 포함)
-- `emulator -list-avds`: 아직 켜지 않은 에뮬레이터
-- macOS에서는 `xcrun simctl`과 `xcrun xctrace`: iOS 시뮬레이터와 연결된 아이폰·아이패드
-
-`adb`와 `emulator`는 `PATH`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`, 그리고 Android Studio 기본 위치(`~/Library/Android/sdk` 등)에서 찾습니다.
-
-## 브라우저
-
-`prefix` `u`로 열고 주소나 검색어를 입력합니다. 검색어는 DuckDuckGo로 검색합니다.
-
-| 키 | 동작 |
-| --- | --- |
-| `j` / `k`, 방향키 | 스크롤 |
-| `space` / `b` | 한 화면 아래 / 위 |
-| 숫자 + `enter` | 그 번호의 링크로 이동 |
-| `u` 또는 `/` | 새 주소·검색어 입력 |
-| `h` | 뒤로 |
-| `y` | 지금 주소를 내 클립보드로 복사 |
-| `o` | 창이 떠 있는 컴퓨터의 기본 브라우저로 열기 |
-| `q` | 닫기 |
-
-글자만 보여 주는 브라우저라서 자바스크립트로 그려지는 페이지는 내용이 비어 보일 수 있습니다. 문서 읽기나 개발 서버 응답 확인에 맞습니다.
-
-터미널에 찍힌 `http://localhost:포트` 링크를 `ctrl`+클릭하면 이 브라우저로 열립니다. 원격 컴퓨터의 개발 서버는 내 노트북의 localhost가 아니라 그 컴퓨터에 있기 때문입니다. 그 밖의 링크는 herdr가 원래 하던 대로 내 브라우저에서 열립니다.
 
 ## 확인한 환경
 
-- Windows 11, herdr 0.9.5, nv 0.2(Rust)에서 테마와 세 창(ALL agents, Devices, 브라우저)을 실행해 확인했습니다.
-- Windows 11의 Herdr 데스크톱 앱에서 테마, `all-agents` 레이아웃과 필터, Devices를 실행해 확인했습니다. Devices는 연결된 맥의 실제 안드로이드 기기, 에뮬레이터, iOS 시뮬레이터를 보여 줬습니다.
-- 터미널 플러그인의 Devices 창은 `demo/fixtures`의 예시 출력으로 확인했고, 같은 명령이 실제 맥에서도 그 형식으로 나오는 것을 봤습니다. macOS에 이 묶음을 직접 설치해 보지는 못했습니다. 문제가 있으면 이슈로 알려 주세요.
+- Windows 11 의 Herdr 데스크톱 앱: 위 기능을 모두 앱에서 실행했습니다. 파이프라인은 대역 에이전트로 끝까지, 첫 단계는 macOS 에서 실제 에이전트로 돌렸습니다.
+- macOS: 파이프라인 첫 단계, 캡처 붙여넣기(로컬과 Windows 터미널로), 설치 구성 요소를 실행했습니다. 파이프라인의 뒤 단계와 스토어 업로드는 아직 실제로 돌려 보지 않았습니다.
 
-## 만든 배경
+## 출처
 
-색은 VS Code의 Cyber Purple 77 테마 화면에서 영감을 받아 herdr의 색 토큰에 맞춰 새로 골랐습니다.
+색은 VS Code 의 Cyber Purple 77 테마 스크린샷에서 영감을 받아 herdr 의 색 토큰에 맞게 새로 골랐습니다. macOS/Linux 의 그래픽 브라우저는 [herdr-web-browser](https://github.com/MattJColes/herdr-web-browser)(MIT)입니다.
 
 ## 라이선스
 
 MIT
-
-새 그래픽 브라우저 설치·조작과 `.env`, Markdown·HTML 미리보기 안내: [Browser와 문서 미리보기](docs/BROWSER.md).

@@ -56,15 +56,25 @@ if (Test-Path $app) {
   }
   Copy-Item $nv (Join-Path $app 'bin\nv.exe') -Force
   Copy-Item (Join-Path $here 'app\browser\nv-preview.mjs') (Join-Path $app 'bin\nv-preview.mjs') -Force
+  Copy-Item (Join-Path $here 'app\browser\nv-web.mjs') (Join-Path $app 'bin\nv-web.mjs') -Force
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
   Copy-Item (Join-Path $here 'app\themes\neon-violet.json') (Join-Path $app 'themes') -Force
   foreach ($l in 'all-agents','neon-violet') { Copy-Item (Join-Path $here "app\layouts\$l.json") (Join-Path $app 'layouts') -Force }
-  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
+  foreach ($m in 'all-agents','devices','prs','nv-browser','nv-browser-frame','nv-code','nv-shortcuts','nv-usage','editor','nv-tabs','nv-new-menu','nv-files','nv-web','nv-toggle-agents','nv-toggle-prs') { Copy-Item (Join-Path $here "app\mods\$m") (Join-Path $app 'mods') -Recurse -Force }
   & (Join-Path $app 'bin\nv.exe') merge-keys (Join-Path $app 'keys.json') (Join-Path $here 'app\keys.json')
-  Write-Warning "Graphical Browser requires macOS/Linux; Windows keeps nv browse as the terminal fallback."
+  if (-not (Get-Command node -ErrorAction SilentlyContinue)) { Write-Warning 'Browser (Ctrl+Shift+U) needs Node.js 22+ and Chrome or Edge.' }
+  # Agent skill: how Claude Code / Codex drive Herdr, hc and the browser (only where those agents are set up).
+  foreach ($skills in (Join-Path $env:USERPROFILE '.claude\skills'), (Join-Path $env:USERPROFILE '.agents\skills')) {
+    if (Test-Path $skills) {
+      $dest = Join-Path $skills 'herdr-hc'
+      New-Item -ItemType Directory -Force $dest | Out-Null
+      Copy-Item (Join-Path $here 'skills\herdr-hc\SKILL.md') (Join-Path $dest 'SKILL.md') -Force
+      "installed skill herdr-hc -> $dest"
+    }
+  }
   "installed Herdr app pack -> $app"
   '  layout: herdr-app do layout.switch --name neon-violet   (dark and translucent)'
-  '  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u'
+  '  ALL agents ctrl+shift+a · Devices ctrl+shift+d · Pull requests ctrl+shift+g · Browser ctrl+shift+u (press again: back/close)'
   '  Code highlighting ctrl+shift+h · Keyboard shortcuts ctrl+shift+k (cmd on macOS)'
 }
 'done.'

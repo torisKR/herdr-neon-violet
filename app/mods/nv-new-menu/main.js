@@ -1,6 +1,6 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { checking, theme, spaces, panes, focused, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, appHome, settings } from "herdr";
+import { checking, theme, spaces, panes, focused, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, settings } from "herdr";
 
 // The last agents each machine reported, shown at once while knownAgents() checks again.
 const KNOWN = "new-menu.agents";
@@ -74,10 +74,7 @@ export default class NewMenu extends View {
 
   browser() {
     closeOverlay(props().overlay);
-    if (window().platform === "windows" && !this.source.on) {
-      this.launch({ argv: [`${appHome()}/bin/nv.exe`, "browse"] });
-      return;
-    }
+    // Same as the shortcut: Chromium on this computer (a live view on Windows), opened or closed.
     openOverlay({ mod: "nv-browser", kind: "dialog", width: 460, height: 160 });
   }
 
@@ -108,15 +105,15 @@ export default class NewMenu extends View {
       // neon-violet tools
       .child(div().h(1).mx(4).my(5).bg(t.border))
       .child(div().px(9).pt(2).pb(4).text_size(11).text_color(t.dim).child(l.tools))
-      .child(this.row("nv-all-agents", div().w(14).text_color(t.accent).child("▦"), l.agents, () => this.allAgents(), shortcut("layout.switch:all-agents")))
+      .child(this.row("nv-all-agents", div().w(14).text_color(t.accent).child("▦"), l.agents, () => this.allAgents(), shortcut("mod.open:nv-toggle-agents") || shortcut("layout.switch:all-agents")))
       .child(this.row("nv-devices", div().w(14).text_color(t.done).child("▣"), l.devices, () => run("mod.open", { name: "devices" }), shortcut("mod.open:devices")))
       .child(this.row("nv-code", div().w(14).text_color(t.accent).child("⌘"), l.code, () => run("mod.open", { name: "nv-code" }), shortcut("mod.open:nv-code")))
       .child(this.row("nv-shortcuts", div().w(14).text_color(t.muted).child("⌨"), l.shortcuts, () => run("mod.open", { name: "nv-shortcuts" }), shortcut("mod.open:nv-shortcuts")))
       .child(this.row("nv-usage", div().w(14).text_color(t.done).child("◔"), l.usage, () => run("mod.open", { name: "nv-usage" }), shortcut("mod.open:nv-usage")))
       .child(this.row("nv-prs", div().w(14).text_color(t.working).child("⇄"), l.prs,
-        () => this.launch({ mod: "prs", props: { cwd: this.source.cwd, on: this.source.on } }), this.source.cwd ? "" : l.focus, Boolean(this.source.cwd)))
+        () => this.launch({ mod: "prs", props: { cwd: this.source.cwd, on: this.source.on } }), this.source.cwd ? shortcut("mod.open:nv-toggle-prs") : l.focus, Boolean(this.source.cwd)))
       .child(this.row("nv-browser", div().w(14).text_color(t.idle).child("◎"), this.browserBusy ? l.opening : l.browser,
-        cx => this.browser(cx), "", !this.browserBusy && Boolean(this.source.pane || this.source.space), false))
+        cx => this.browser(cx), shortcut("mod.open:nv-browser"), !this.browserBusy && Boolean(this.source.pane || this.source.space), false))
       .when(Boolean(this.browserError), el => el.child(div().px(9).py(6).text_color(t.blocked).child(this.browserError)));
   }
 }

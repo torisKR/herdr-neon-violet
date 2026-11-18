@@ -23,6 +23,16 @@ fn old_browser(action: &Value) -> bool {
     argv.len() == 2 && argv[1] == "browse" && ["/herdr-app/bin/nv", "/herdr-app/bin/nv.exe", "/plugin/bin/nv", "/plugin/bin/nv.exe"].iter().any(|suffix| path.ends_with(suffix))
 }
 
+/// Earlier pack defaults that a newer pack default replaces when the person never changed them:
+/// ALL agents and Pull requests became toggles (press again to go back / close).
+fn superseded(key: &str, current: &Value) -> bool {
+    match key {
+        "ctrl-shift-a" => current == "layout.switch:all-agents",
+        "ctrl-shift-g" => *current == serde_json::json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}}),
+        _ => false,
+    }
+}
+
 fn remove_retired(keys: &mut Value) {
     let Some(root) = keys.as_object_mut() else { return };
     root.remove("mod:todos");
@@ -49,13 +59,8 @@ pub fn main(args: &[String]) -> i32 {
             return 1;
         }
     };
-    if cfg!(windows) {
-        if let Some(global) = add.get_mut("global").and_then(Value::as_object_mut) {
-            if global.get("ctrl-shift-u").and_then(Value::as_str) == Some("mod.open:nv-browser") {
-                global.insert("ctrl-shift-u".into(), serde_json::json!({"command":"pane.split","args":{"direction":"right","argv":["{{NV}}","browse"]}}));
-            }
-        }
-    }
+    // Windows used to get the text browser here; the Browser mod now opens a live Chrome view there too,
+    // and an untouched old text-browser binding is replaced below (old_browser).
     fill(&mut add, &nv);
 
     let existing = fs::read_to_string(target).ok();
@@ -87,7 +92,8 @@ pub fn main(args: &[String]) -> i32 {
                     slot.remove(key); // an earlier version installed it under the ctrl name on macOS
                 }
                 // An older version of this pack bound the browser to a Node script that no longer exists.
-                let stale = slot.get(&name).map(|c| c.to_string().contains("browse.mjs") || action == "mod.open:nv-browser" && old_browser(c)).unwrap_or(false);
+                let stale = slot.get(&name).map(|c| c.to_string().contains("browse.mjs") || action == "mod.open:nv-browser" && old_browser(c)
+                    || section == "global" && superseded(key, c)).unwrap_or(false);
                 match slot.get(&name) {
                     Some(current) if current != action && !stale => kept.push(format!("{section} {name}")),
                     _ => {
@@ -121,6 +127,37 @@ mod tests {
         assert!(old_browser(&json!({"command":"pane.split","args":{"argv":["C:\\Users\\example\\.config\\herdr-app\\bin\\nv.exe","browse"]}})));
         assert!(!old_browser(&json!({"command":"pane.split","args":{"argv":["/opt/custom/nv","browse"]}})));
         assert!(!old_browser(&json!({"command":"pane.split","args":{"argv":["/Users/example/.config/herdr-app/bin/nv","files"]}})));
+    }
+
+    #[test]
+    fn only_untouched_old_defaults_become_toggles() {
+        assert!(superseded("ctrl-shift-a", &json!("layout.switch:all-agents")));
+        assert!(superseded("ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"right","mod":"prs"}})));
+        assert!(!superseded("ctrl-shift-g", &json!({"command":"pane.split","args":{"direction":"down","mod":"prs"}})));
+        assert!(!superseded("ctrl-shift-a", &json!("layout.switch:main")));
+        assert!(!superseded("ctrl-shift-x", &json!("layout.switch:all-agents")));
+    }
+
+    #[test]
+    fn merge_replaces_old_defaults_and_keeps_customized_keys() {
+        let dir = std::env::temp_dir().join(format!("nv-keys-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let (target, additions) = (dir.join("keys.json"), dir.join("add.json"));
+        let prefix = if cfg!(target_os = "macos") { "cmd" } else { "ctrl" };
+        let mut global = Map::new();
+        global.insert(format!("{prefix}-shift-a"), json!("layout.switch:all-agents"));
+        global.insert(format!("{prefix}-shift-g"), json!("tab.new"));
+        global.insert(format!("{prefix}-shift-u"), json!({"command":"pane.split","args":{"direction":"right","argv":["C:/Users/x/.config/herdr-app/bin/nv.exe","browse"]}}));
+        fs::write(&target, json!({ "global": global }).to_string()).unwrap();
+        fs::write(&additions, json!({ "global": {
+            "ctrl-shift-a": "mod.open:nv-toggle-agents", "ctrl-shift-g": "mod.open:nv-toggle-prs", "ctrl-shift-u": "mod.open:nv-browser"
+        } }).to_string()).unwrap();
+        assert_eq!(main(&[target.to_string_lossy().into_owned(), additions.to_string_lossy().into_owned()]), 0);
+        let keys: Value = serde_json::from_str(&fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(keys["global"][format!("{prefix}-shift-a")], "mod.open:nv-toggle-agents");
+        assert_eq!(keys["global"][format!("{prefix}-shift-g")], "tab.new");
+        assert_eq!(keys["global"][format!("{prefix}-shift-u")], "mod.open:nv-browser");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

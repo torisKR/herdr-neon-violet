@@ -1,10 +1,12 @@
 import { View, div } from "gpui-kit";
 import { h_flex } from "gpui-base";
-import { checking, closeOverlay, exec, props, shared, theme } from "herdr";
+import { checking, closeOverlay, exec, props, setShared, shared, theme } from "herdr";
 
 export default class BrowserFrame extends View {
   init() { this.terminal = props()?.terminal; }
   async close() {
+    // The window is gone: the Browser shortcut opens a new one next time.
+    if (shared("nv.browser.open") === shared(`nv.browser.${this.terminal}`)) setShared("nv.browser.open", null);
     if (!checking() && props()?.owned === true && /^t[0-9a-z]+$/.test(this.terminal ?? "")) await exec("hc", ["kill", this.terminal]).catch(() => {});
   }
   render() {

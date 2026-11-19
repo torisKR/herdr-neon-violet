@@ -50,6 +50,19 @@
           ]
         },
         {
+          "id": "nv-tools",
+          "type": "block",
+          "content": {
+            "mod": "nv-new-menu",
+            "props": {
+              "sidebar": true
+            }
+          },
+          "size": {
+            "px": 130
+          }
+        },
+        {
           "id": "sidebar-footer",
           "type": "block",
           "content": {

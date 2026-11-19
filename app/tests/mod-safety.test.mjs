@@ -395,6 +395,31 @@ test("All agents uses the pack layout for direct entry and deleted return layout
   assert.deepEqual(standalone.calls, [{ name: "layout.switch", args: { name: "main" } }]);
 });
 
+test("sidebar tools reuse an open tool tab and otherwise open one", () => {
+  const tabs = [{ id: "t-today", name: "Today", named: true }];
+  const h = harness("nv-new-menu", {
+    props: () => ({ sidebar: true }),
+    spaces: () => [{ id: "s", active: true, machine: null, folder: "/repo", tabs }],
+  });
+  const view = h.view.render();
+  assert.ok(find(view, "nv-play") && find(view, "nv-auto-app"));
+  assert.ok(!find(view, "nv-browser"));
+  find(view, "nv-today").events.on_click({}, h.cx);
+  find(view, "nv-auto-app").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls, [
+    { name: "tab.select", args: { id: "t-today" } },
+    { name: "tab.new", args: { name: "Auto app", space: "s", mod: "nv-pipeline", props: { create: true } } },
+  ]);
+});
+
+test("sidebar tools draw icons only in the narrow rail", () => {
+  const h = harness("nv-new-menu", {
+    props: () => ({ sidebar: true }), settings: () => ({ language: "en" }),
+    layout: () => ({ id: "root", children: [{ id: "sidebar", size: { px: 44 } }] }),
+  });
+  assert.ok(!textOf(h.view.render()).includes("Play check"));
+});
+
 test("reopening All agents never overwrites the original return layout", () => {
   const values = new Map([["layout", "all-agents"], ["all-agents.return-layout", "neon-violet"]]);
   const h = harness("nv-new-menu", {

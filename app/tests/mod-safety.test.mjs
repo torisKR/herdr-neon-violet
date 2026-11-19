@@ -395,19 +395,21 @@ test("All agents uses the pack layout for direct entry and deleted return layout
   assert.deepEqual(standalone.calls, [{ name: "layout.switch", args: { name: "main" } }]);
 });
 
-test("sidebar tools reuse an open tool tab and otherwise open one", () => {
-  const tabs = [{ id: "t-today", name: "Today", named: true }];
+test("sidebar tools reuse the tab showing that tool, whatever its name, and otherwise open one", () => {
+  // A terminal tab named "Today" is not the Today tool; a renamed Play check tab still is Play check.
+  const tabs = [{ id: "t-shell", name: "Today", named: true }, { id: "t-play", name: "store", named: true }, { id: "t-other", name: "x" }];
   const h = harness("nv-new-menu", {
     props: () => ({ sidebar: true }),
     spaces: () => [{ id: "s", active: true, machine: null, folder: "/repo", tabs }],
+    panes: () => [{ pane: "p1", tab: "t-shell", terminal: "t1" }, { pane: "p2", tab: "t-play", terminal: null, mod: "nv-play" },
+      { pane: "p3", tab: "elsewhere", terminal: null, mod: "nv-pipeline" }],
   });
   const view = h.view.render();
-  assert.ok(find(view, "nv-play") && find(view, "nv-auto-app"));
   assert.ok(!find(view, "nv-browser"));
-  find(view, "nv-today").events.on_click({}, h.cx);
-  find(view, "nv-auto-app").events.on_click({}, h.cx);
+  for (const id of ["nv-today", "nv-play", "nv-auto-app"]) find(view, id).events.on_click({}, h.cx);
   assert.deepEqual(h.calls, [
-    { name: "tab.select", args: { id: "t-today" } },
+    { name: "tab.new", args: { name: "Today", space: "s", mod: "nv-today" } },
+    { name: "tab.select", args: { id: "t-play" } },
     { name: "tab.new", args: { name: "Auto app", space: "s", mod: "nv-pipeline", props: { create: true } } },
   ]);
 });

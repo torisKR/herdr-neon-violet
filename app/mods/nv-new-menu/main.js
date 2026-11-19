@@ -84,8 +84,10 @@ export default class NewMenu extends View {
     const t = theme(), l = copy(), rail = narrow();
     const space = spaces().find(s => s.active);
     const open = tool => {
-      const tab = space?.tabs.find(c => c.named && c.name === tool.tab);
-      if (tab) run("tab.select", { id: tab.id });
+      // By the mod a pane shows, not the tab's name: names are the person's to change.
+      const ids = new Set(space?.tabs.map(c => c.id));
+      const tab = panes().find(p => p.mod === tool.mod && ids.has(p.tab))?.tab;
+      if (tab) run("tab.select", { id: tab });
       else run("tab.new", toolTab(tool, space));
     };
     return v_flex().size_full().min_h(0).bg(t.chrome).border_t_1().border_color(t.border).text_size(13).px(rail ? 0 : 8).pb(6)

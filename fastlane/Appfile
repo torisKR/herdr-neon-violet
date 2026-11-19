@@ -1,0 +1,8 @@
+# Fastlane Appfile for Google Play deployment
+#
+# The app is first released from one developer account and later transferred to another.
+# Both accounts grant the same service account Admin access, so one JSON key
+# (fastlane/play-store-key.json, kept out of git) works before and after the transfer.
+
+json_key_file(ENV["PLAY_JSON_KEY_FILE"] || File.expand_path("play-store-key.json", __dir__))
+package_name(ENV["ANDROID_PACKAGE_NAME"] || "com.toris.app")

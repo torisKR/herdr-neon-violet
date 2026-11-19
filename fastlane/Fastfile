@@ -1,0 +1,52 @@
+default_platform(:android)
+
+# Deployment strategy: the first release goes out from one developer account, production
+# after the app moves to another. Both accounts grant the same service account Admin access,
+# so fastlane/play-store-key.json works for both stages without changing credentials.
+
+platform :android do
+  desc "Validate the Play Console service account JSON key against Google Play API"
+  lane :validate_key do |options|
+    pkg = options[:package_name] || ENV["ANDROID_PACKAGE_NAME"]
+    UI.user_error!("Set ANDROID_PACKAGE_NAME or pass package_name:... to validate against a Play Console app") if pkg.nil? || pkg.empty?
+
+    validate_play_store_json_key(
+      json_key: ENV["PLAY_JSON_KEY_FILE"] || File.expand_path("play-store-key.json", __dir__),
+      package_name: pkg
+    )
+  end
+
+  desc "Upload AAB to Google Play internal track (the initial account by default; works after the transfer too)"
+  lane :deploy_internal do |options|
+    stage = options[:stage] || ENV["PLAY_STAGE"] || "yujuhwan"
+    aab_path = options[:aab] || ENV["ANDROID_AAB_PATH"]
+    UI.user_error!("Pass aab:/path/to/app.aab or set ANDROID_AAB_PATH") if aab_path.nil? || aab_path.empty?
+
+    UI.message("Deploying to Google Play (internal) [stage=#{stage}]")
+    upload_to_play_store(
+      track: "internal",
+      aab: aab_path,
+      release_status: options[:release_status] || "draft",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+
+  desc "Upload AAB to Google Play production track"
+  lane :deploy_production do |options|
+    stage = options[:stage] || ENV["PLAY_STAGE"] || "toris"
+    aab_path = options[:aab] || ENV["ANDROID_AAB_PATH"]
+    UI.user_error!("Pass aab:/path/to/app.aab or set ANDROID_AAB_PATH") if aab_path.nil? || aab_path.empty?
+
+    UI.message("Deploying to Google Play (production) [stage=#{stage}]")
+    upload_to_play_store(
+      track: "production",
+      aab: aab_path,
+      release_status: options[:release_status] || "completed",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

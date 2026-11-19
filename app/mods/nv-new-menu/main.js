@@ -5,10 +5,10 @@ import { checking, theme, spaces, panes, focused, knownAgents, run, openOverlay,
 // The last agents each machine reported, shown at once while knownAgents() checks again.
 const KNOWN = "new-menu.agents";
 const TEXT = {
-  en: { terminal: "Terminal", start: "Start an agent", missing: "not installed", failed: "Could not check installed agents", checking: "Checking installed agents…", space: "New space", worktree: "New worktree…", openWorktree: "Open worktree…", tools: "Tools", agents: "ALL agents", devices: "Devices", prs: "Pull requests", focus: "Focus a terminal", browser: "Browser", opening: "Opening Browser…", code: "Code highlighting", shortcuts: "Keyboard shortcuts", usage: "AI usage", autoApp: "Auto app (plan → store)", today: "Today (pick up where you left)", update: "Update" },
-  ja: { terminal: "ターミナル", start: "エージェントを起動", missing: "未インストール", failed: "エージェントを確認できません", checking: "エージェントを確認中…", space: "新しいスペース", worktree: "作業ツリーを作成…", openWorktree: "作業ツリーを開く…", tools: "ツール", agents: "全エージェント", devices: "デバイス", prs: "プルリクエスト", focus: "ターミナルを選択", browser: "ブラウザー", opening: "ブラウザーを起動中…", code: "コードハイライト", shortcuts: "ショートカット一覧", usage: "AI使用量", autoApp: "Auto app（企画→ストア）", today: "今日（続きから再開）", update: "アップデート" },
-  zh: { terminal: "终端", start: "启动智能体", missing: "未安装", failed: "无法检查已安装的智能体", checking: "正在检查智能体…", space: "新建空间", worktree: "新建工作树…", openWorktree: "打开工作树…", tools: "工具", agents: "全部智能体", devices: "设备", prs: "拉取请求", focus: "请选择终端", browser: "浏览器", opening: "正在打开浏览器…", code: "代码高亮", shortcuts: "快捷键列表", usage: "AI用量", autoApp: "Auto app（策划→商店）", today: "今天（接着上次继续）", update: "更新" },
-  ko: { terminal: "터미널", start: "에이전트 시작", missing: "미설치", failed: "설치된 에이전트를 확인하지 못했습니다", checking: "설치된 에이전트 확인 중…", space: "새 공간", worktree: "새 작업 트리…", openWorktree: "작업 트리 열기…", tools: "도구", agents: "전체 에이전트", devices: "기기 목록", prs: "풀 리퀘스트", focus: "터미널을 선택하세요", browser: "브라우저", opening: "브라우저 여는 중…", code: "코드 하이라이팅", shortcuts: "단축키 모음", usage: "AI 사용량", autoApp: "Auto app (기획 → 스토어)", today: "오늘 · 이어하기", update: "업데이트" },
+  en: { terminal: "Terminal", start: "Start an agent", missing: "not installed", failed: "Could not check installed agents", checking: "Checking installed agents…", space: "New space", worktree: "New worktree…", openWorktree: "Open worktree…", tools: "Tools", agents: "ALL agents", devices: "Devices", prs: "Pull requests", focus: "Focus a terminal", browser: "Browser", opening: "Opening Browser…", code: "Code highlighting", shortcuts: "Keyboard shortcuts", usage: "AI usage", autoApp: "Auto app (plan → store)", today: "Today (pick up where you left)", play: "Play check (what is on Google Play)", update: "Update" },
+  ja: { terminal: "ターミナル", start: "エージェントを起動", missing: "未インストール", failed: "エージェントを確認できません", checking: "エージェントを確認中…", space: "新しいスペース", worktree: "作業ツリーを作成…", openWorktree: "作業ツリーを開く…", tools: "ツール", agents: "全エージェント", devices: "デバイス", prs: "プルリクエスト", focus: "ターミナルを選択", browser: "ブラウザー", opening: "ブラウザーを起動中…", code: "コードハイライト", shortcuts: "ショートカット一覧", usage: "AI使用量", autoApp: "Auto app（企画→ストア）", today: "今日（続きから再開）", play: "Play チェック（公開状況）", update: "アップデート" },
+  zh: { terminal: "终端", start: "启动智能体", missing: "未安装", failed: "无法检查已安装的智能体", checking: "正在检查智能体…", space: "新建空间", worktree: "新建工作树…", openWorktree: "打开工作树…", tools: "工具", agents: "全部智能体", devices: "设备", prs: "拉取请求", focus: "请选择终端", browser: "浏览器", opening: "正在打开浏览器…", code: "代码高亮", shortcuts: "快捷键列表", usage: "AI用量", autoApp: "Auto app（策划→商店）", today: "今天（接着上次继续）", play: "Play 检查（上架状态）", update: "更新" },
+  ko: { terminal: "터미널", start: "에이전트 시작", missing: "미설치", failed: "설치된 에이전트를 확인하지 못했습니다", checking: "설치된 에이전트 확인 중…", space: "새 공간", worktree: "새 작업 트리…", openWorktree: "작업 트리 열기…", tools: "도구", agents: "전체 에이전트", devices: "기기 목록", prs: "풀 리퀘스트", focus: "터미널을 선택하세요", browser: "브라우저", opening: "브라우저 여는 중…", code: "코드 하이라이팅", shortcuts: "단축키 모음", usage: "AI 사용량", autoApp: "Auto app (기획 → 스토어)", today: "오늘 · 이어하기", play: "Play 체크 (스토어 배포 상태)", update: "업데이트" },
 };
 const language = value => {
   const key = String(value ?? "").trim().toLowerCase().split(/[-_]/)[0];
@@ -83,7 +83,7 @@ export default class NewMenu extends View {
     const space = spaces().find(s => s.active);
     const installed = this.agents.filter(a => a.installed);
     const choices = this.failed ? installed : [...installed, ...this.agents.filter(a => !a.installed).slice(0, 2)];
-    return v_flex().min_h(0).w_full().h(Math.min(773, 543 + Math.max(1, choices.length + (this.failed ? 1 : 0)) * 31)).bg(t.popover).p(5).text_size(12.8)
+    return v_flex().min_h(0).w_full().h(Math.min(804, 574 + Math.max(1, choices.length + (this.failed ? 1 : 0)) * 31)).bg(t.popover).p(5).text_size(12.8)
       .id("new-menu").track_focus(this.handle)
       .on_key_down((e) => {
         if (e.modifiers.control || e.modifiers.platform || e.modifiers.alt) return;
@@ -107,6 +107,8 @@ export default class NewMenu extends View {
       .child(div().px(9).pt(2).pb(4).text_size(11).text_color(t.dim).child(l.tools))
       .child(this.row("nv-today", div().w(14).text_color(t.accent).child("◉"), l.today,
         () => run("tab.new", { name: "Today", space: space?.id, mod: "nv-today" }), shortcut("tab.new:nv-today"), Boolean(space)))
+      .child(this.row("nv-play", div().w(14).text_color(t.accent).child("▶"), l.play,
+        () => run("tab.new", { name: "Play check", space: space?.id, mod: "nv-play" }), shortcut("tab.new:nv-play"), Boolean(space)))
       .child(this.row("nv-auto-app", div().w(14).text_color(t.accent).child("✦"), l.autoApp,
         () => run("tab.new", { name: "Auto app", space: space?.id, mod: "nv-pipeline", props: { create: true } }), shortcut("tab.new:nv-pipeline"), Boolean(space)))
       .child(this.row("nv-all-agents", div().w(14).text_color(t.accent).child("▦"), l.agents, () => this.allAgents(), shortcut("mod.open:nv-toggle-agents") || shortcut("layout.switch:all-agents")))

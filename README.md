@@ -12,6 +12,7 @@ A workspace pack for [Herdr](https://herdr.dev), the desktop app and terminal fo
 | --- | --- | --- |
 | **Auto app** | + menu → Auto app · `Ctrl/Cmd+Shift+Y` | Give it a folder and an idea. A team of agents researches, plans, designs, builds, tests on a device, prepares the store listing and releases through fastlane. |
 | **Today** | + menu → Today · `Ctrl/Cmd+Shift+J` | What to pick up now: one main project and one maintenance project, each with the next action, why it stopped, where to continue, and whether what was verified still holds. Details: [Today](docs/TODAY.md). |
+| **Play check** | + menu → Play check · `Ctrl/Cmd+Shift+L` | Every app of a Google Play developer account with where it stands: published, in review, rejected, draft or testing only, per track. Read only. Details: [Play check](docs/PLAY.md). |
 | **Browser with Inspect** | `Ctrl/Cmd+Shift+U` | A real Chrome/Edge inside Herdr. Agents drive their own tabs; you click an element, say what to change, and send it to an agent. |
 | **ALL agents** | `Ctrl/Cmd+Shift+A` | Every running agent's live terminal on one screen. Press again to go back. |
 | **Pull requests** | `Ctrl/Cmd+Shift+G` | Read, comment on and merge the repository's pull requests beside your terminal. |

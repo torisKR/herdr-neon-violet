@@ -1418,3 +1418,78 @@ test("the update window follows the terminal's step markers, including a failure
   h.view.follow(h.cx); await h.settle();
   assert.equal(h.view.state.step, "done");
 });
+
+// ---- Play check: what a developer account has on Google Play
+
+const playApp = (pkg, state, patch = {}) => ({ package: pkg, name: `App ${pkg.split(".").at(-1)}`, state, live: state === "live", store: state === "live" ? "live" : "missing", folder: null,
+  tracks: state === "none" ? {} : { [state === "testing" ? "internal" : "production"]: [{ name: "1.0", codes: [1], state: state === "review" ? "in_review" : state === "rejected" ? "not_approved" : "published" }] }, ...patch });
+
+/** The Play tab with a fake nv-play on this computer and on "macbook": it records every request and answers `list` from `data`. */
+function playBoard(data, overrides = {}) {
+  const requests = [], opened = [];
+  const h = harness("nv-play", {
+    settings: () => ({ language: "ko" }), machines: () => [{ name: null, layout: "ready" }, { name: "macbook", layout: "ready" }, { name: "off", layout: "unavailable" }],
+    readTextFile: async () => "// nv-play source",
+    exec: async (command, args, opts) => {
+      if (command !== "node") { opened.push([command, ...args]); return ok(""); }
+      const request = JSON.parse(/^run\((\{.*\})\)\.then\(r => r, e/.exec(args[2].split("\n").at(-1))[1]), on = opts?.on ?? null;
+      requests.push({ on, ...request });
+      if (request.command === "list") return ok({ version: 1, tool: "/x/bin/nv-play.mjs", accounts: (typeof data === "function" ? data(request, on) : data)[on ?? "local"] ?? [] });
+      return ok({ id: "toris" });
+    }, ...overrides });
+  return { h, requests, opened };
+}
+
+test("the + menu opens Play check, which lists every app of the account on the machine that has its key", async () => {
+  const menu = harness("nv-new-menu");
+  find(menu.view.render(), "nv-play").events.on_click({}, menu.cx);
+  assert.deepEqual(menu.calls[0], { name: "tab.new", args: { name: "Play check", space: "s", mod: "nv-play" } });
+  const at = new Date().toISOString();
+  const apps = [playApp("com.t.rejected", "rejected", { live: true }), playApp("com.t.review", "review", { live: true, store: "live", folder: "/Users/me/projects/review_app" }),
+    playApp("com.t.testing", "testing"), playApp("com.t.live", "live"), playApp("com.t.gone", "live", { store: "missing" }), playApp("com.t.none", "none", { error: "production: HTTP 403" })];
+  const { h, requests, opened } = playBoard({ macbook: [{ id: "toris", name: "Toris", key: "/k.json", at, error: null, apps }] });
+  assert.ok(find(h.view.render(), "loading"));
+  h.view.load(h.cx); await h.settle();
+  assert.deepEqual(plain(requests.map(r => [r.on, r.command, r.flags])), [[null, "list", {}], ["macbook", "list", {}]], "a fresh answer is shown without asking Google again");
+  let tree = h.view.render();
+  assert.ok(find(tree, "account-macbook/toris") && find(tree, "app-com.t.review") && find(tree, "release-com.t.review-production-0") && find(tree, "state-com.t.live"));
+  assert.ok(find(tree, "error-com.t.none") && find(tree, "store-com.t.gone") && !find(tree, "open-com.t.gone"));
+  // Filters: in review, what needs a look (rejected, an unreadable track, published but no store page), published, testing only.
+  const shown = filter => { find(h.view.render(), `filter-${filter}`).events.on_click({}, h.cx); const t = h.view.render(); return apps.map(a => a.package).filter(p => find(t, `app-${p}`)); };
+  assert.deepEqual(shown("review"), ["com.t.review"]);
+  assert.deepEqual(shown("look"), ["com.t.rejected", "com.t.gone", "com.t.none"]);
+  assert.deepEqual(shown("live"), ["com.t.rejected", "com.t.review", "com.t.live", "com.t.gone"]);
+  assert.deepEqual(shown("testing"), ["com.t.testing", "com.t.none"]);
+  assert.equal(shown("all").length, 6);
+  // The store page opens in the browser; the project's space opens on the machine the project is on.
+  find(h.view.render(), "open-com.t.review").events.on_click({}, h.cx);
+  assert.deepEqual(opened[0], ["open", "https://play.google.com/store/apps/details?id=com.t.review"]);
+  find(h.view.render(), "space-com.t.review").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls.at(-1), { name: "space.new", args: { name: "App review", folder: "/Users/me/projects/review_app", machine: "macbook" } });
+  // Check now asks Google again, on every machine.
+  find(h.view.render(), "refresh").events.on_click({}, h.cx); await h.settle();
+  assert.deepEqual(plain(requests.slice(2).map(r => [r.on, r.flags])), [[null, { refresh: true }], ["macbook", { refresh: true }]]);
+});
+
+test("Play check asks again by itself when the last answer is old, and an account is added on the machine that is chosen", async () => {
+  const old = new Date(Date.now() - 3 * 3600000).toISOString();
+  let accounts = [];
+  const { h, requests } = playBoard(() => ({ macbook: accounts }));
+  h.view.load(h.cx); await h.settle();
+  assert.ok(find(h.view.render(), "empty"));
+  find(h.view.render(), "empty-add").events.on_click({}, h.cx);
+  find(h.view.render(), "on-macbook").events.on_click({}, h.cx);
+  h.view.inputs.name.set_value("Toris"); h.view.inputs.key.set_value("/Users/me/projects/key.json");
+  accounts = [{ id: "toris", name: "Toris", key: "/Users/me/projects/key.json", at: old, error: "Google did not accept the key", apps: [playApp("com.t.a", "live")] }];
+  requests.length = 0;
+  find(h.view.render(), "save-account").events.on_click({}, h.cx); await h.settle();
+  assert.deepEqual(plain(requests[0]), { on: "macbook", command: "account", args: ["add", "Toris", "/Users/me/projects/key.json"] });
+  assert.ok(requests.slice(1).every(r => r.command === "list" && r.flags.refresh));
+  assert.ok(find(h.view.render(), "failed-macbook/toris") && !find(h.view.render(), "account-form"));
+  // An answer that is three hours old: the plain read is followed by a check.
+  requests.length = 0;
+  h.view.load(h.cx); await h.settle();
+  assert.deepEqual(plain(requests.map(r => [r.on, r.flags])), [[null, {}], ["macbook", {}], [null, { refresh: true }], ["macbook", { refresh: true }]]);
+  find(h.view.render(), "remove-macbook/toris").events.on_click({}, h.cx); await h.settle();
+  assert.ok(requests.some(r => r.on === "macbook" && r.command === "account" && r.args[0] === "remove" && r.args[1] === "toris"));
+});

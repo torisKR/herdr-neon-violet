@@ -144,6 +144,14 @@ test("where an app stands is one word, the most urgent first", () => {
   assert.deepEqual(summarize({}), { state: "none", live: false });
 });
 
+test("a rejection only counts while it is the newest version: a later approved one sinks it", () => {
+  const v = (state, code) => ({ name: "x", codes: [code], state });
+  assert.deepEqual(summarize({ production: [v("not_approved", 3), v("published", 4)] }), { state: "live", live: true });
+  assert.deepEqual(summarize({ production: [v("not_approved", 3), v("approved_not_published", 4)] }), { state: "ready", live: false });
+  assert.deepEqual(summarize({ production: [v("not_approved", 3), v("in_review", 4)] }), { state: "review", live: false });
+  assert.deepEqual(summarize({ production: [v("published", 4), v("not_approved", 5)] }), { state: "rejected", live: true });
+});
+
 test("project folders are matched to packages by the Android application id or the fastlane Appfile", () => {
   const w = world();
   const put = (path, text) => { mkdirSync(join(w.projects, ...path.slice(0, -1)), { recursive: true }); writeFileSync(join(w.projects, ...path), text); };

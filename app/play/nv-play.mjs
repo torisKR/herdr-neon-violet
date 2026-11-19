@@ -77,7 +77,12 @@ const stateOf = raw => String(raw ?? "").replace(/^RELEASE_LIFECYCLE_STATE_/, ""
 export function summarize(tracks) {
   const has = (track, ...states) => (tracks[track] ?? []).some(r => states.includes(r.state));
   const any = TRACKS.some(t => (tracks[t] ?? []).length > 0), live = has("production", "published");
-  const state = has("production", "not_approved") ? "rejected"
+  // A rejection counts only while no production release has a newer version code: a later version that went
+  // through (or is in review) replaces it, and the app sinks below the ones still rejected.
+  const top = r => Math.max(0, ...(r.codes ?? []).map(Number).filter(Number.isFinite));
+  const production = tracks.production ?? [], newest = Math.max(0, ...production.map(top));
+  const rejected = production.some(r => r.state === "not_approved" && top(r) >= newest);
+  const state = rejected ? "rejected"
     : has("production", "in_review") ? "review"
     : has("production", "approved_not_published") ? "ready"
     : has("production", "draft", "not_sent_for_review") ? "draft"      // also when an older release is live: something is waiting to be sent

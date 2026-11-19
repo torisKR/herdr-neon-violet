@@ -37,6 +37,15 @@ hc kill review; hc rm review                   # clean up only what you started
 - `blocked` means a person must answer. Read the screen and ask your user. Never `--force` past a permission prompt.
 - Slow builds and tests belong in `hc run --bg` + `hc wait`, so you stay reachable.
 - Codex children need `--no-daemon`.
+- A task names: the files it may change, how to check it (the command to run), and a result file
+  to write (`/tmp/<name>.md`). Long tasks go in a file; pass its path.
+- One writer per file at a time. Ports, databases, caches and build output are shared too, even
+  across worktrees (`git worktree add` when children need separate checkouts).
+- `hc ls` shows every terminal. Read, send to or kill only the ones you started or were given.
+- An idle or done child is not a finished task. Check its result file and diff, run the check
+  yourself, then call it done. Copy results out before you remove a worktree.
+- Given a task by another agent (`<hc from=…>`)? Stay inside its files, do not start agents unless
+  told to, and report blockers or scope overlaps right away.
 
 ## Show it to the person (herdr-app)
 

@@ -51,9 +51,10 @@ if [ -d "$app" ]; then
   mkdir -p "$app/pipeline/stages" && cp "$here"/app/pipeline/stages/*.md "$app/pipeline/stages/"
   cp "$here/app/usage/nv-usage.mjs" "$app/bin/nv-usage.mjs"
   cp "$here/app/today/nv-today.mjs" "$app/bin/nv-today.mjs"
+  cp "$here/app/play/nv-play.mjs" "$app/bin/nv-play.mjs"
   cp "$here/app/themes/neon-violet.json" "$app/themes/"
   cp "$here/app/layouts/all-agents.json" "$here/app/layouts/neon-violet.json" "$app/layouts/"
-  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$here/app/mods/nv-paste" "$here/app/mods/nv-pipeline" "$here/app/mods/nv-today" "$here/app/mods/nv-update" "$app/mods/"
+  cp -R "$here/app/mods/all-agents" "$here/app/mods/devices" "$here/app/mods/prs" "$here/app/mods/nv-browser" "$here/app/mods/nv-browser-frame" "$here/app/mods/nv-code" "$here/app/mods/nv-shortcuts" "$here/app/mods/nv-usage" "$here/app/mods/editor" "$here/app/mods/nv-tabs" "$here/app/mods/nv-new-menu" "$here/app/mods/nv-files" "$here/app/mods/nv-web" "$here/app/mods/nv-toggle-agents" "$here/app/mods/nv-toggle-prs" "$here/app/mods/nv-paste" "$here/app/mods/nv-pipeline" "$here/app/mods/nv-today" "$here/app/mods/nv-play" "$here/app/mods/nv-update" "$app/mods/"
   "$app/bin/nv" merge-keys "$app/keys.json" "$here/app/keys.json"
   # Where this pack lives, so Update in the + menu can pull and install again.
   printf '{"repo": "%s"}\n' "$(printf %s "$here" | sed 's/\\/\\\\/g; s/"/\\"/g')" > "$app/nv-pack.json"

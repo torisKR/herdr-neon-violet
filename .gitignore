@@ -5,3 +5,12 @@ plugin/target/
 plugin/bin/
 app/mods/*/gpui-kit.d.ts
 app/mods/*/jsconfig.json
+
+# Fastlane & Google Play / Android signing secrets
+fastlane/play-store-key.json
+fastlane/*.json
+fastlane/keys/
+*play-uploader*.json
+*.jks
+*.keystore
+key.properties

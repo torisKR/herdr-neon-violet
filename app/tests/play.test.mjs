@@ -148,7 +148,9 @@ test("a rejection only counts while it is the newest version: a later approved o
   const v = (state, code) => ({ name: "x", codes: [code], state });
   assert.deepEqual(summarize({ production: [v("not_approved", 3), v("published", 4)] }), { state: "live", live: true });
   assert.deepEqual(summarize({ production: [v("not_approved", 3), v("approved_not_published", 4)] }), { state: "ready", live: false });
-  assert.deepEqual(summarize({ production: [v("not_approved", 3), v("in_review", 4)] }), { state: "review", live: false });
+  // Only a newer version that went through replaces a rejection: one in review or a draft leaves it unresolved.
+  assert.deepEqual(summarize({ production: [v("not_approved", 3), v("in_review", 4)] }), { state: "rejected", live: false });
+  assert.deepEqual(summarize({ production: [v("not_approved", 3), v("draft", 4)] }), { state: "rejected", live: false });
   assert.deepEqual(summarize({ production: [v("published", 4), v("not_approved", 5)] }), { state: "rejected", live: true });
 });
 

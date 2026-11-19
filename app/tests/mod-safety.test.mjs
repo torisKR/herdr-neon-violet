@@ -1163,6 +1163,13 @@ test("every pick from the sidebar, even of the app already selected, closes the 
   values.set("nv.pipeline.pick", { id: "b", n: 6 });
   h.view.render();
   assert.deepEqual([h.view.selected, h.view.form], ["b", null]);
+  // Every open pipeline view sees the pick: one with something typed in its form keeps the form.
+  h.view.form = { kind: "auto", mode: "promote" };
+  h.view.ideaInput.set_value("a cat cafe idle game");
+  values.set("nv.pipeline.pick", { id: "a", n: 7 });
+  h.view.render();
+  assert.equal(h.view.selected, "a");
+  assert.ok(h.view.form, "a form with typed text is never thrown away by a pick");
 });
 
 test("the + menu's Auto app opens the pipeline board with its form", () => {

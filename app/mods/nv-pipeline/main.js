@@ -221,11 +221,19 @@ export default class Pipeline extends View {
 
   // The sidebar's Auto app list counts each pick (nv.pipeline.pick {id, n}): take a new one like a click here,
   // which also closes the new-app form and the opened stage, even when it is the app already shown.
+  // A mod pane cannot tell which tab it is in, so every open pipeline view sees the pick: a form with
+  // something typed in it stays open, so a pick never throws that away.
   followPick() {
     const pick = shared("nv.pipeline.pick");
     if (!pick?.id || pick.n === this.pickSeen) return;
     this.pickSeen = pick.n;
+    const form = this.form;
     this.select(pick.id);
+    if (form && this.typed()) this.form = form;
+  }
+
+  typed() {
+    return [this.nameInput, this.ideaInput, this.dirInput, this.refsInput].some(i => i.value().trim()) || this.refImages.length > 0;
   }
 
   errorOf(r) {

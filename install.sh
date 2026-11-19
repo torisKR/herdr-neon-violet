@@ -48,7 +48,11 @@ if [ -d "$app" ]; then
   cp "$here/app/browser/nv-web.mjs" "$app/bin/nv-web.mjs"
   cp "$here/app/pipeline/nv-pipeline.mjs" "$app/bin/nv-pipeline.mjs"
   cp "$here/app/pipeline/nv-graphics.mjs" "$app/bin/nv-graphics.mjs"
+  cp "$here/app/pipeline/nv-replica.mjs" "$app/bin/nv-replica.mjs"
   mkdir -p "$app/pipeline/stages" && cp "$here"/app/pipeline/stages/*.md "$app/pipeline/stages/"
+  # The Replica skill pack (app/pipeline/replica/UPSTREAM.md): eleven skills and their Python tools, copied
+  # as one folder so the paths between them hold. It is the copy in this repository, never a download.
+  mkdir -p "$app/pipeline/replica" && cp -R "$here/app/pipeline/replica/." "$app/pipeline/replica/"
   cp "$here/app/usage/nv-usage.mjs" "$app/bin/nv-usage.mjs"
   cp "$here/app/today/nv-today.mjs" "$app/bin/nv-today.mjs"
   cp "$here/app/play/nv-play.mjs" "$app/bin/nv-play.mjs"
@@ -71,6 +75,18 @@ if [ -d "$app" ]; then
     if [ -d "$skills" ]; then
       mkdir -p "$skills/herdr-hc" && cp "$here/skills/herdr-hc/SKILL.md" "$skills/herdr-hc/SKILL.md"
       echo "installed skill herdr-hc -> $skills/herdr-hc"
+      # The Replica skills, for agents that load skills by name. A folder of the same name that this
+      # pack did not put there is the person's own and is left as it is.
+      kept=""
+      for skill in "$here"/app/pipeline/replica/replica-*; do
+        name="${skill##*/}"
+        if [ ! -d "$skills/$name" ] || [ -f "$skills/$name/.herdr-toris-neon" ]; then
+          mkdir -p "$skills/$name" && cp -R "$skill/." "$skills/$name/" && : > "$skills/$name/.herdr-toris-neon"
+        else
+          kept="$kept $name"
+        fi
+      done
+      echo "installed the Replica skills -> $skills/replica-*${kept:+ (left as they were:$kept)}"
     fi
   done
   echo "installed Herdr app pack -> $app"

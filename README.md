@@ -33,6 +33,7 @@ A workspace pack for [Herdr](https://herdr.dev), the desktop app and terminal fo
 - Choose how much it asks you: **unattended**, **ask before production** (default), or **ask at every choice**. Ideas and designs appear as cards to click.
 - Apps are built with Flutter; games with Godot or Unity + URP depending on the genre. Releases go to the Play internal track first, then production.
 - References are studied, never copied: the genre and the loop are taken, the name, art and text are new.
+- Optional: **Use the Replica skills** (or `--replica`) runs the eleven skills of [The Replica skill](https://github.com/Jakeschincariol/replica-skill) inside the stages: a recon map and feature matrix of the reference, real reviews read before the brief, and parity, leftovers of the reference and the listing checked by the conductor before any upload. Needs Python 3.8+. The pack is included at a pinned commit (MIT); runs without the switch are unchanged.
 
 Details: [App pipeline](docs/PIPELINE.md).
 

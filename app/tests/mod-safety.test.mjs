@@ -1179,6 +1179,58 @@ test("clicking a desk opens its agent's screen, and each member can be shown or 
   assert.ok(h.view.note);
 });
 
+test("Auto app can start a run with the Replica skills, and each desk then shows its skills, what was found and the files", async () => {
+  // The switch on the form: off unless the person turns it on.
+  const { h, commands } = board({ props: () => ({ create: true }), settings: () => ({ language: "ko" }) }, { key: { present: true }, stages: [], apps: [], replica: { installed: true, version: "77c9436" } });
+  h.view.data = { key: { present: true }, stages: [], apps: [], replica: { installed: true, version: "77c9436" } };
+  h.view.ideaInput.set_value("예약 링크 앱");
+  assert.ok(!find(h.view.render(), "replica-help"));
+  find(h.view.render(), "replica").events.on_click({}, h.cx);
+  assert.ok(find(h.view.render(), "replica-help"));
+  h.view.create(h.cx); await h.settle();
+  assert.equal(commands.find(c => c[0] === "node" && c[2] === "new").at(-2), "--replica");
+  // Without the switch the command is what it always was.
+  const plainRun = board({ props: () => ({ create: true }) });
+  plainRun.h.view.ideaInput.set_value("cats");
+  plainRun.h.view.create(plainRun.h.cx); await plainRun.h.settle();
+  assert.ok(!plainRun.commands.find(c => c[2] === "new").includes("--replica"));
+  // A machine without the pack says so on the form.
+  const bare = board({ props: () => ({ create: true }) });
+  bare.h.view.data = { key: { present: true }, stages: [], apps: [], replica: { installed: false, version: null } };
+  bare.h.view.form.replica = true;
+  assert.ok(JSON.stringify(plain(find(bare.h.view.render(), "replica-help"))).includes("not installed"));
+
+  // The desk of a run with Replica.
+  const status = runningBoard();
+  status.apps[0].state.replica = true;
+  status.apps[0].state.stages.research.replica = { version: "77c9436fb3d18c3d58169efb8caf4fe906b0dc51", steps: [] };
+  status.apps[0].replica = {
+    research: [
+      { skill: "replica-recon", part: null, ko: "참고 앱 분석", optional: false, status: "done", reason: null, sample: null, checks: [{ name: "features", ok: true, detail: "18 features" }], files: [{ path: "replica/recon.md", exists: true }, { path: "replica/features.csv", exists: true }] },
+      { skill: "replica-entrepreneur", part: "early", ko: "리뷰 조사(초기)", optional: false, status: "failed", reason: null, sample: 3, checks: [{ name: "reviews", ok: false, detail: "replica/reviews.csv: 2 row(s) have no link or no text; every review needs both" }], files: [{ path: "replica/reviews.csv", exists: true }, { path: "replica/feedback.md", exists: false }] }],
+    build: [{ skill: "replica-backend", part: null, ko: "백엔드", optional: true, status: "skipped", reason: "architecture.md has no server side", sample: null, checks: [], files: [{ path: "replica/backend.md", exists: false }] }],
+    assets: [{ skill: null, part: null, ko: "확정된 토큰·브랜드 연결", optional: false, status: "planned", reason: null, sample: null, checks: [], files: [] }],
+  };
+  const run = board({ settings: () => ({ language: "ko" }) }, status);
+  run.h.view.data = status;
+  run.h.view.focus = "research";
+  let tree = run.h.view.render();
+  assert.ok(find(tree, "replica") && find(tree, "replica-step-0") && find(tree, "replica-step-1"));
+  const text = node => JSON.stringify(plain(node));
+  assert.ok(text(find(tree, "replica-status-0")).includes("완료") && text(find(tree, "replica-status-1")).includes("실패"));
+  assert.ok(text(find(tree, "replica-said-1")).includes("have no link or no text"), "why the check failed is on the desk");
+  assert.ok(text(find(tree, "replica-step-1")).includes("리뷰 3건 수집") && text(find(tree, "replica-file-1-1")).includes("replica/feedback.md"));
+  run.h.view.focus = "build";
+  tree = run.h.view.render();
+  assert.ok(text(find(tree, "replica-status-0")).includes("해당 없음") && text(find(tree, "replica-said-0")).includes("no server side"));
+  run.h.view.focus = "assets";
+  assert.ok(text(find(run.h.view.render(), "replica-step-0")).includes("스킬이 남긴 파일을 사용"));
+  // A desk of a run without Replica has no such block.
+  const old = runningBoard(), legacy = board({}, old);
+  legacy.h.view.data = old; legacy.h.view.focus = "research";
+  assert.ok(!find(legacy.h.view.render(), "replica"));
+});
+
 test("the board shows what each desk is really doing, and a run that stalled can be continued", async () => {
   const status = runningBoard();
   const { h, commands } = board({}, status);

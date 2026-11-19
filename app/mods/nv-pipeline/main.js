@@ -216,10 +216,13 @@ export default class Pipeline extends View {
     });
   }
 
-  // The shared pick first: the sidebar's Auto app list sets it while this tab is already open.
-  app() {
-    const id = shared("nv.pipeline.app") ?? this.selected;
-    return this.data.apps.find(a => a.id === id && a.state) ?? this.data.apps.find(a => a.state) ?? null;
+  app() { return this.data.apps.find(a => a.id === this.selected && a.state) ?? this.data.apps.find(a => a.state) ?? null; }
+
+  // The sidebar's Auto app list picks through the shared value while this tab is open: take it like a click
+  // here, which also closes the new-app form and the opened stage.
+  followPick() {
+    const id = shared("nv.pipeline.app") ?? null;
+    if (id && id !== this.selected) this.select(id);
   }
 
   errorOf(r) {
@@ -644,6 +647,7 @@ export default class Pipeline extends View {
   }
 
   render() {
+    this.followPick();
     const t = theme(), l = copy(), app = this.app();
     const body = Math.max(220, (this.size?.height ?? 900) - TOP_H - SUMMARY_H - CANVAS_H - (this.note ? NOTE_H : 0));
     return v_flex().id("nv-pipeline").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12)

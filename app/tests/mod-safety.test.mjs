@@ -1144,6 +1144,17 @@ function board(overrides = {}, status = { key: { present: false }, stages: [], a
   return { h, commands };
 }
 
+test("a pick from the sidebar closes the open form and stage, like a click on the app here", () => {
+  const values = new Map([["nv.pipeline.app", "a"]]);
+  const { h } = board({ props: () => ({ create: true }), shared: key => values.get(key), setShared: (key, value) => values.set(key, value) });
+  h.view.focus = "build";
+  h.view.render();
+  assert.ok(h.view.form, "the form stays while nothing else was picked");
+  values.set("nv.pipeline.app", "b");
+  h.view.render();
+  assert.deepEqual([h.view.selected, h.view.form, h.view.focus], ["b", null, null]);
+});
+
 test("the + menu's Auto app opens the pipeline board with its form", () => {
   const menu = harness("nv-new-menu");
   find(menu.view.render(), "nv-auto-app").events.on_click({}, menu.cx);

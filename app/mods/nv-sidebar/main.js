@@ -79,7 +79,11 @@ export default class SidebarSection extends View {
   }
 
   pick(row) {
-    if (row.app) setShared("nv.pipeline.app", row.app);
+    if (row.app) {
+      // n counts every pick, so an open pipeline tab takes even a pick of the app it already shows.
+      setShared("nv.pipeline.app", row.app);
+      setShared("nv.pipeline.pick", { id: row.app, n: (shared("nv.pipeline.pick")?.n ?? 0) + 1 });
+    }
     this.open();
   }
 

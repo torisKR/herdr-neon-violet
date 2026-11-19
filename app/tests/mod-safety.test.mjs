@@ -452,6 +452,10 @@ test("an Auto app row selects that app and reuses the tab showing the pipeline, 
   assert.ok(!textOf(view).includes("undefined"));
   find(view, "row-x").events.on_click({}, h.cx);
   assert.equal(values.get("nv.pipeline.app"), "x");
+  assert.deepEqual(plain(values.get("nv.pipeline.pick")), { id: "x", n: 1 });
+  find(view, "row-x").events.on_click({}, h.cx);
+  assert.deepEqual(plain(values.get("nv.pipeline.pick")), { id: "x", n: 2 });
+  h.calls.splice(1);
   find(view, "section-new").events.on_click({}, h.cx);
   assert.deepEqual(h.calls, [
     { name: "tab.select", args: { id: "t-pipe" } },
@@ -1144,15 +1148,21 @@ function board(overrides = {}, status = { key: { present: false }, stages: [], a
   return { h, commands };
 }
 
-test("a pick from the sidebar closes the open form and stage, like a click on the app here", () => {
-  const values = new Map([["nv.pipeline.app", "a"]]);
+test("every pick from the sidebar, even of the app already selected, closes the open form and stage", () => {
+  const values = new Map([["nv.pipeline.app", "a"], ["nv.pipeline.pick", { id: "a", n: 4 }]]);
   const { h } = board({ props: () => ({ create: true }), shared: key => values.get(key), setShared: (key, value) => values.set(key, value) });
   h.view.focus = "build";
   h.view.render();
-  assert.ok(h.view.form, "the form stays while nothing else was picked");
-  values.set("nv.pipeline.app", "b");
+  assert.ok(h.view.form, "a pick made before this tab opened does not close its form");
+  values.set("nv.pipeline.pick", { id: "a", n: 5 });
   h.view.render();
-  assert.deepEqual([h.view.selected, h.view.form, h.view.focus], ["b", null, null]);
+  assert.deepEqual([h.view.selected, h.view.form, h.view.focus], ["a", null, null]);
+  h.view.form = { kind: "auto", mode: "promote" };
+  h.view.render();
+  assert.ok(h.view.form, "the same pick is taken once");
+  values.set("nv.pipeline.pick", { id: "b", n: 6 });
+  h.view.render();
+  assert.deepEqual([h.view.selected, h.view.form], ["b", null]);
 });
 
 test("the + menu's Auto app opens the pipeline board with its form", () => {

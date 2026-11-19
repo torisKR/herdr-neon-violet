@@ -128,6 +128,7 @@ export default class Pipeline extends View {
   init(_props, cx) {
     this.data = { key: { present: false }, stages: [], apps: [] };
     this.selected = shared("nv.pipeline.app") ?? null;
+    this.pickSeen = shared("nv.pipeline.pick")?.n ?? null;   // sidebar picks made before this tab opened are already in `selected`
     this.focus = null;        // the stage whose details show; null follows the pipeline
     this.form = null;         // { kind, mode } while the new-app form is open
     this.note = null;         // feedback line
@@ -218,11 +219,13 @@ export default class Pipeline extends View {
 
   app() { return this.data.apps.find(a => a.id === this.selected && a.state) ?? this.data.apps.find(a => a.state) ?? null; }
 
-  // The sidebar's Auto app list picks through the shared value while this tab is open: take it like a click
-  // here, which also closes the new-app form and the opened stage.
+  // The sidebar's Auto app list counts each pick (nv.pipeline.pick {id, n}): take a new one like a click here,
+  // which also closes the new-app form and the opened stage, even when it is the app already shown.
   followPick() {
-    const id = shared("nv.pipeline.app") ?? null;
-    if (id && id !== this.selected) this.select(id);
+    const pick = shared("nv.pipeline.pick");
+    if (!pick?.id || pick.n === this.pickSeen) return;
+    this.pickSeen = pick.n;
+    this.select(pick.id);
   }
 
   errorOf(r) {

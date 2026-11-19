@@ -11,7 +11,7 @@ This folder is a copy of **The Replica skill** by Jake Schincariol: eleven agent
 
 ## What differs from the source
 
-**Nothing in the 39 files.** Two files were added and are not part of the source: this `UPSTREAM.md` and `upstream.json` (the same facts for programs, with a SHA-256 over the copied files). `app/tests/replica.test.mjs` recomputes that digest, so a change to any copied file fails the tests until it is written down here and in `upstream.json` (`modified`).
+**Nothing in the 39 files.** Two files were added and are not part of the source: this `UPSTREAM.md` and `upstream.json` (the same facts for programs, with a SHA-256 over the copied files, read with LF line endings). `app/tests/replica.test.mjs` recomputes that digest, so a change to any copied file fails the tests until it is written down here and in `upstream.json` (`modified`).
 
 How the skills are used by the app pipeline (which stage, which part, the engine instead of the pack's web stack, who starts the next step) is not written into these files. It is in `app/pipeline/nv-replica.mjs` and is added to each agent's task file. See `docs/PIPELINE.md`.
 

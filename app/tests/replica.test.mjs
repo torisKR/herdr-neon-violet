@@ -103,7 +103,7 @@ test("the skill pack is the recorded copy of the source: all files, unchanged, w
   const walk = d => { for (const e of readdirSync(join(pack, d), { withFileTypes: true })) { const p = d ? `${d}/${e.name}` : e.name; if (e.isDirectory()) { if (e.name !== "__pycache__") walk(p); } else if (!["UPSTREAM.md", "upstream.json"].includes(p) && !p.endsWith(".pyc")) list.push(p); } };
   walk(""); list.sort();
   const hash = createHash("sha256");
-  for (const p of list) { hash.update(p); hash.update("\0"); hash.update(readFileSync(join(pack, p))); hash.update("\0"); }
+  for (const p of list) { hash.update(p); hash.update("\0"); hash.update(readFileSync(join(pack, p), "latin1").split("\r\n").join("\n"), "latin1"); hash.update("\0"); }   // line endings as in the source, whatever git checked out
   assert.equal(list.length, meta.files);
   assert.equal(hash.digest("hex"), meta.sha256, "a copied file changed: write it down in UPSTREAM.md and upstream.json");
   assert.deepEqual([meta.url, meta.commit.length, meta.license, meta.modified], ["https://github.com/Jakeschincariol/replica-skill", 40, "MIT", []]);

@@ -128,6 +128,7 @@ export default class Pipeline extends View {
   init(_props, cx) {
     this.data = { key: { present: false }, stages: [], apps: [] };
     this.selected = shared("nv.pipeline.app") ?? null;
+    this.pickSeen = shared("nv.pipeline.pick")?.n ?? null;   // sidebar picks made before this tab opened are already in `selected`
     this.focus = null;        // the stage whose details show; null follows the pipeline
     this.form = null;         // { kind, mode } while the new-app form is open
     this.note = null;         // feedback line
@@ -217,6 +218,23 @@ export default class Pipeline extends View {
   }
 
   app() { return this.data.apps.find(a => a.id === this.selected && a.state) ?? this.data.apps.find(a => a.state) ?? null; }
+
+  // The sidebar's Auto app list counts each pick (nv.pipeline.pick {id, n}): take a new one like a click here,
+  // which also closes the new-app form and the opened stage, even when it is the app already shown.
+  // A mod pane cannot tell which tab it is in, so every open pipeline view sees the pick: a form with
+  // something typed in it stays open, so a pick never throws that away.
+  followPick() {
+    const pick = shared("nv.pipeline.pick");
+    if (!pick?.id || pick.n === this.pickSeen) return;
+    this.pickSeen = pick.n;
+    const form = this.form;
+    this.select(pick.id);
+    if (form && this.typed()) this.form = form;
+  }
+
+  typed() {
+    return [this.nameInput, this.ideaInput, this.dirInput, this.refsInput].some(i => i.value().trim()) || this.refImages.length > 0;
+  }
 
   errorOf(r) {
     try { return JSON.parse(r.stderr).error; } catch { return (r.stderr || r.stdout).trim(); }
@@ -640,6 +658,7 @@ export default class Pipeline extends View {
   }
 
   render() {
+    this.followPick();
     const t = theme(), l = copy(), app = this.app();
     const body = Math.max(220, (this.size?.height ?? 900) - TOP_H - SUMMARY_H - CANVAS_H - (this.note ? NOTE_H : 0));
     return v_flex().id("nv-pipeline").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12)

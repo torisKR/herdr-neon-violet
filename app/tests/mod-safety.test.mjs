@@ -395,31 +395,87 @@ test("All agents uses the pack layout for direct entry and deleted return layout
   assert.deepEqual(standalone.calls, [{ name: "layout.switch", args: { name: "main" } }]);
 });
 
-test("sidebar tools reuse the tab showing that tool, whatever its name, and otherwise open one", () => {
-  // A terminal tab named "Today" is not the Today tool; a renamed Play check tab still is Play check.
-  const tabs = [{ id: "t-shell", name: "Today", named: true }, { id: "t-play", name: "store", named: true }, { id: "t-other", name: "x" }];
-  const h = harness("nv-new-menu", {
-    props: () => ({ sidebar: true }),
-    spaces: () => [{ id: "s", active: true, machine: null, folder: "/repo", tabs }],
-    panes: () => [{ pane: "p1", tab: "t-shell", terminal: "t1" }, { pane: "p2", tab: "t-play", terminal: null, mod: "nv-play" },
-      { pane: "p3", tab: "elsewhere", terminal: null, mod: "nv-pipeline" }],
+function sidebarSection(section, answer, overrides = {}) {
+  const asked = [];
+  const h = harness("nv-sidebar", {
+    checking: () => false, settings: () => ({ language: "ko" }), props: () => ({ section }),
+    exec: async (command, args) => { asked.push([command, ...args]); return answer; },
+    ...overrides,
   });
+  return { h, asked };
+}
+
+test("the Today section lists the projects from nv-today, main work first", async () => {
+  const projects = [{ id: "a", name: "fishhook", focus: "main", at: null }, { id: "b", name: "Danwol", focus: null, at: null }];
+  const { h, asked } = sidebarSection("today", ok({ projects }));
+  await h.settle();
+  assert.deepEqual(asked, [["node", "/local/herdr-app/bin/nv-today.mjs", "list", "--json"]]);
+  const text = textOf(h.view.render());
+  assert.ok(text.includes("오늘 · 이어하기"));
+  assert.ok(text.indexOf("fishhook") < text.indexOf("Danwol"));
+});
+
+test("the Play section lists every account's apps with their state", async () => {
+  const accounts = [{ apps: [{ package: "a.b", name: "Roomdoku", state: "review" }] }, { apps: [{ package: "c.d", name: "Danwol", state: "live" }] }];
+  const { h } = sidebarSection("play", ok({ accounts }));
+  await h.settle();
+  const text = textOf(h.view.render());
+  assert.ok(text.includes("Roomdoku") && text.includes("검토 중"));
+  assert.ok(text.includes("Danwol") && text.includes("출시됨"));
+});
+
+test("the Play section's search keeps the apps whose name or package matches", async () => {
+  const accounts = [{ apps: [{ package: "com.toris.roomdoku", name: "Roomdoku", state: "review" }, { package: "kr.danwol", name: "Danwol", state: "live" }] }];
+  const { h } = sidebarSection("play", ok({ accounts }));
+  await h.settle();
+  h.view.search.set_value("ROOM");
+  let text = textOf(h.view.render());
+  assert.ok(text.includes("Roomdoku") && !text.includes("Danwol"));
+  h.view.search.set_value("kr.dan");
+  text = textOf(h.view.render());
+  assert.ok(!text.includes("Roomdoku") && text.includes("Danwol"));
+  h.view.search.set_value("nothing");
+  assert.ok(textOf(h.view.render()).includes("검색 결과 없음"));
+});
+
+test("an Auto app row selects that app and reuses the tab showing the pipeline, whatever its name", async () => {
+  const values = new Map();
+  const apps = [{ id: "x", state: { name: "Roomdoku", status: "running", stage: "build" } }, { id: "y", state: null }];
+  const tabs = [{ id: "t-shell", name: "Auto app", named: true }, { id: "t-pipe", name: "store", named: true }];
+  const { h } = sidebarSection("pipeline", ok({ apps }), {
+    shared: key => values.get(key), setShared: (key, value) => values.set(key, value),
+    spaces: () => [{ id: "s", active: true, machine: null, folder: "/repo", tabs }],
+    panes: () => [{ pane: "p1", tab: "t-shell", terminal: "t1" }, { pane: "p2", tab: "t-pipe", terminal: null, mod: "nv-pipeline" }],
+  });
+  await h.settle();
   const view = h.view.render();
-  assert.ok(!find(view, "nv-browser"));
-  for (const id of ["nv-today", "nv-play", "nv-auto-app"]) find(view, id).events.on_click({}, h.cx);
+  assert.ok(!textOf(view).includes("undefined"));
+  find(view, "row-x").events.on_click({}, h.cx);
+  assert.equal(values.get("nv.pipeline.app"), "x");
+  find(view, "section-new").events.on_click({}, h.cx);
   assert.deepEqual(h.calls, [
-    { name: "tab.new", args: { name: "Today", space: "s", mod: "nv-today" } },
-    { name: "tab.select", args: { id: "t-play" } },
+    { name: "tab.select", args: { id: "t-pipe" } },
     { name: "tab.new", args: { name: "Auto app", space: "s", mod: "nv-pipeline", props: { create: true } } },
   ]);
 });
 
-test("sidebar tools draw icons only in the narrow rail", () => {
-  const h = harness("nv-new-menu", {
-    props: () => ({ sidebar: true }), settings: () => ({ language: "en" }),
+test("a Today row opens the tool when no tab shows it, and a failed read says why", async () => {
+  const { h } = sidebarSection("today", ok({ projects: [{ id: "a", name: "fishhook", focus: null }] }));
+  await h.settle();
+  find(h.view.render(), "row-a").events.on_click({}, h.cx);
+  assert.deepEqual(h.calls, [{ name: "tab.new", args: { name: "Today", space: "s", mod: "nv-today" } }]);
+  const failed = sidebarSection("play", { code: 1, stdout: "", stderr: "Cannot find module nv-play.mjs" });
+  await failed.h.settle();
+  assert.ok(textOf(failed.h.view.render()).includes("Cannot find module"));
+});
+
+test("in the narrow rail a section draws no names", async () => {
+  const { h } = sidebarSection("today", ok({ projects: [{ id: "a", name: "fishhook", focus: null }] }), {
     layout: () => ({ id: "root", children: [{ id: "sidebar", size: { px: 44 } }] }),
   });
-  assert.ok(!textOf(h.view.render()).includes("Play check"));
+  await h.settle();
+  const text = textOf(h.view.render());
+  assert.ok(!text.includes("fishhook") && !text.includes("오늘"));
 });
 
 test("reopening All agents never overwrites the original return layout", () => {

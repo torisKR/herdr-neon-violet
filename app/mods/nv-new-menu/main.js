@@ -1,17 +1,14 @@
 import { View, div, svg, image } from "gpui-kit";
 import { h_flex, v_flex } from "gpui-base";
-import { checking, theme, spaces, panes, focused, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, settings, layout } from "herdr";
+import { checking, theme, spaces, panes, focused, knownAgents, run, openOverlay, closeOverlay, props, window, keys, shared, setShared, settings } from "herdr";
 
-// The tools that open as a tab; the menu lists them and the sidebar block ({sidebar: true}) shows them too.
+// The tools that open as a tab (the sidebar lists them too: mods/nv-sidebar).
 const TOOLS = [
   { id: "nv-today", glyph: "◉", label: "today", tab: "Today", mod: "nv-today" },
   { id: "nv-play", glyph: "▶", label: "play", tab: "Play check", mod: "nv-play" },
   { id: "nv-auto-app", glyph: "✦", label: "autoApp", tab: "Auto app", mod: "nv-pipeline", props: { create: true } },
 ];
 const toolTab = (tool, space) => ({ name: tool.tab, space: space?.id, mod: tool.mod, ...(tool.props && { props: tool.props }) });
-const findNode = (node, id) => node?.id === id ? node : (node?.children ?? []).map(c => findNode(c, id)).find(Boolean) ?? null;
-// Same rule as the spaces list: under 160px the sidebar is a rail of icons.
-const narrow = () => (findNode(layout(), "sidebar")?.size?.px ?? Infinity) < 160;
 
 // The last agents each machine reported, shown at once while knownAgents() checks again.
 const KNOWN = "new-menu.agents";
@@ -46,7 +43,6 @@ function shortcut(name) {
 
 export default class NewMenu extends View {
   init(_props, cx) {
-    if (props()?.sidebar) return;
     const space = spaces().find(s => s.active), f = focused();
     this.source = props()?.source ?? { cwd: f?.cwd ?? null, pane: f?.pane ?? null, space: f?.space ?? space?.id,
       on: f?.terminal ? (f.terminal.includes("/") ? f.terminal.split("/")[0] : null) : space?.machine ?? null };
@@ -73,32 +69,10 @@ export default class NewMenu extends View {
       .child(icon).child(div().flex_1().min_w(0).truncate().child(name)).child(div().text_size(11).text_color(t.dim).child(hint));
   }
 
-  toolRow(tool, space, close = true) {
+  toolRow(tool, space) {
     const t = theme();
     return this.row(tool.id, div().w(14).text_color(t.accent).child(tool.glyph), copy()[tool.label],
-      () => run("tab.new", toolTab(tool, space)), shortcut(`tab.new:${tool.mod}`), Boolean(space), close);
-  }
-
-  // A block in the left sidebar: the tools, reusing a tab already open for one in the shown space.
-  sidebar() {
-    const t = theme(), l = copy(), rail = narrow();
-    const space = spaces().find(s => s.active);
-    const open = tool => {
-      // By the mod a pane shows, not the tab's name: names are the person's to change.
-      const ids = new Set(space?.tabs.map(c => c.id));
-      const tab = panes().find(p => p.mod === tool.mod && ids.has(p.tab))?.tab;
-      if (tab) run("tab.select", { id: tab });
-      else run("tab.new", toolTab(tool, space));
-    };
-    return v_flex().size_full().min_h(0).bg(t.chrome).border_t_1().border_color(t.border).text_size(13).px(rail ? 0 : 8).pb(6)
-      .child(h_flex().h(31).pl(rail ? 0 : 8).items_center().when(rail, el => el.justify_center()).text_size(11.5).text_color(t.dim)
-        .child(rail ? div().h(1).w(20).bg(t.border) : l.tools))
-      .children(TOOLS.map(tool => h_flex().id(tool.id).h(31).px(rail ? 0 : 8).gap(10).rounded(7).items_center().flex_none()
-        .when(rail, el => el.justify_center()).text_color(space ? t.foreground : t.dim)
-        .when(Boolean(space), el => el.hover(s => s.bg(t.hover)))
-        .on_click(() => { if (space) open(tool); })
-        .child(div().w(14).text_color(t.accent).child(tool.glyph))
-        .when(!rail, el => el.child(div().flex_1().min_w(0).truncate().child(l[tool.label])))));
+      () => run("tab.new", toolTab(tool, space)), shortcut(`tab.new:${tool.mod}`), Boolean(space));
   }
 
   allAgents() {
@@ -119,7 +93,6 @@ export default class NewMenu extends View {
   }
 
   render() {
-    if (props()?.sidebar) return this.sidebar();
     const t = theme(), l = copy();
     const space = spaces().find(s => s.active);
     const installed = this.agents.filter(a => a.installed);

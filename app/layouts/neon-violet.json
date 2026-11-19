@@ -46,21 +46,50 @@
                 "weight": 1
               },
               "min": 90
+            },
+            {
+              "id": "nv-today-list",
+              "type": "block",
+              "content": {
+                "mod": "nv-sidebar",
+                "props": {
+                  "section": "today"
+                }
+              },
+              "size": {
+                "weight": 0.6
+              },
+              "min": 62
+            },
+            {
+              "id": "nv-play-list",
+              "type": "block",
+              "content": {
+                "mod": "nv-sidebar",
+                "props": {
+                  "section": "play"
+                }
+              },
+              "size": {
+                "weight": 0.6
+              },
+              "min": 62
+            },
+            {
+              "id": "nv-pipeline-list",
+              "type": "block",
+              "content": {
+                "mod": "nv-sidebar",
+                "props": {
+                  "section": "pipeline"
+                }
+              },
+              "size": {
+                "weight": 0.6
+              },
+              "min": 62
             }
           ]
-        },
-        {
-          "id": "nv-tools",
-          "type": "block",
-          "content": {
-            "mod": "nv-new-menu",
-            "props": {
-              "sidebar": true
-            }
-          },
-          "size": {
-            "px": 130
-          }
         },
         {
           "id": "sidebar-footer",

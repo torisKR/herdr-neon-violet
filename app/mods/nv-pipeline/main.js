@@ -216,7 +216,11 @@ export default class Pipeline extends View {
     });
   }
 
-  app() { return this.data.apps.find(a => a.id === this.selected && a.state) ?? this.data.apps.find(a => a.state) ?? null; }
+  // The shared pick first: the sidebar's Auto app list sets it while this tab is already open.
+  app() {
+    const id = shared("nv.pipeline.app") ?? this.selected;
+    return this.data.apps.find(a => a.id === id && a.state) ?? this.data.apps.find(a => a.state) ?? null;
+  }
 
   errorOf(r) {
     try { return JSON.parse(r.stderr).error; } catch { return (r.stderr || r.stdout).trim(); }

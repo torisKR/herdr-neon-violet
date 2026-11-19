@@ -1,9 +1,10 @@
 // One tool as a list in the left sidebar, beside Spaces and Agents: the layout gives each block
 // {section: "today" | "play" | "pipeline"}. It reads what that tool's own script answers (no tokens,
-// Play check only its last saved answer) and opens the tool's tab, reusing the one already showing it.
+// Play check only its last saved answer), on this computer and, like the tool's tab, on connected machines
+// (Auto app is this computer only, as its tab), and opens the tool's tab, reusing the one already showing it.
 import { View, div } from "gpui-kit";
 import { h_flex, v_flex, InputState, Input } from "gpui-base";
-import { appHome, checking, exec, layout, panes, props, run, settings, setShared, shared, spaces, theme } from "herdr";
+import { appHome, checking, exec, layout, machines, panes, props, readTextFile, run, settings, setShared, shared, spaces, theme } from "herdr";
 
 const POLL_MS = 30000;
 const PLAY_STATES = {
@@ -24,14 +25,14 @@ const copy = () => TEXT[language(shared("nv.language")) ?? language(settings().l
 
 /** What each section reads, which tab it opens, and its rows: { id, name, search?, app?, color(t), hint(l) }. */
 const SECTIONS = {
-  today: { tool: "nv-today", args: ["list"], mod: "nv-today", tab: "Today",
+  today: { tool: "nv-today", command: "list", remote: true, mod: "nv-today", tab: "Today",
     rows: d => (d.projects ?? []).map(p => ({ id: p.id, name: p.name,
       color: t => p.focus === "main" ? t.accent : p.focus === "maint" ? t.working : t.dim, hint: () => p.focus === "main" ? "★" : p.focus === "maint" ? "•" : "" })) },
-  play: { tool: "nv-play", args: ["list"], mod: "nv-play", tab: "Play check", searchable: true,
+  play: { tool: "nv-play", command: "list", remote: true, mod: "nv-play", tab: "Play check", searchable: true,
     rows: d => (d.accounts ?? []).flatMap(a => a.apps ?? []).map(a => ({ id: a.package, name: a.name, search: `${a.name} ${a.package}`.toLowerCase(),
       color: t => a.state === "rejected" ? t.blocked : a.state === "review" ? t.working : a.state === "live" || a.state === "ready" ? t.done : t.dim,
       hint: l => l.states[a.state] ?? "" })) },
-  pipeline: { tool: "nv-pipeline", args: ["status"], mod: "nv-pipeline", tab: "Auto app", create: { create: true },
+  pipeline: { tool: "nv-pipeline", command: "status", mod: "nv-pipeline", tab: "Auto app", create: { create: true },
     rows: d => (d.apps ?? []).filter(a => a.state).map(a => ({ id: a.id, name: a.state.name ?? a.id, app: a.id,
       color: t => ({ waiting: t.blocked, failed: t.blocked, running: t.working, done: t.done })[a.state.status] ?? t.idle, hint: () => a.state.stage ?? "" })) },
 };
@@ -57,15 +58,37 @@ export default class SidebarSection extends View {
     const s = SECTIONS[this.key];
     this.loading = true;
     cx.spawn(async cx => {
-      try {
-        const r = await exec("node", [`${appHome()}/bin/${s.tool}.mjs`, ...s.args, "--json"], { timeout: 30000 });
-        if (r.code !== 0) throw new Error((r.stderr || r.stdout || "node failed").trim().slice(0, 200));
-        this.rows = s.rows(JSON.parse(r.stdout));
-        this.error = null;
-      } catch (error) { this.error = String(error?.message ?? error); }
+      const names = s.remote ? [...new Set([null, ...machines().filter(m => m.name && m.layout !== "unavailable").map(m => m.name)])] : [null];
+      const answers = await Promise.all(names.map(async machine => {
+        try { return { rows: s.rows(await this.read(s, machine)).map(r => ({ ...r, id: machine ? `${machine}/${r.id}` : r.id })) }; }
+        // A machine without Node or without this pack is left out quietly; this computer says why.
+        catch (error) { return { rows: [], error: machine ? null : String(error?.message ?? error) }; }
+      }));
+      // One row per id: an app two Play accounts can see is listed once.
+      const seen = new Set();
+      this.rows = answers.flatMap(a => a.rows).filter(r => !seen.has(r.id) && seen.add(r.id));
+      this.error = answers.find(a => a.error)?.error ?? null;
       this.loading = false;
       cx.notify();
     });
+  }
+
+  /** What the tool answers on a machine (null: this computer). Today and Play run their script's source there,
+   *  as their tabs do, so a machine without this pack still answers; Auto app runs the local conductor. */
+  async read(s, machine) {
+    let r;
+    if (!s.remote) r = await exec("node", [`${appHome()}/bin/${s.tool}.mjs`, s.command, "--json"], { timeout: 30000 });
+    else {
+      this.source ??= await readTextFile(`${appHome()}/bin/${s.tool}.mjs`);
+      if (!this.source) throw new Error(`bin/${s.tool}.mjs is missing: install this pack again`);
+      const request = JSON.stringify({ command: s.command, args: [], flags: {} });
+      const script = `${this.source}\nPromise.resolve().then(() => run(${request})).then(r => r, e => ({ error: String(e && e.message || e) })).then(r => { console.log(JSON.stringify(r)); process.exit(0); });`;
+      r = await exec("node", ["--input-type=module", "-e", script], { on: machine, timeout: 60000 });
+    }
+    if (r.code !== 0) throw new Error((r.stderr || r.stdout || "node failed").trim().slice(0, 200));
+    const data = JSON.parse(r.stdout);
+    if (data.error) throw new Error(data.error);
+    return data;
   }
 
   /** Shows the tab of the shown space that has this tool open (by its mod: tab names are the person's), else opens one. */

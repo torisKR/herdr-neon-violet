@@ -398,8 +398,9 @@ test("All agents uses the pack layout for direct entry and deleted return layout
 function sidebarSection(section, answer, overrides = {}) {
   const asked = [];
   const h = harness("nv-sidebar", {
-    checking: () => false, settings: () => ({ language: "ko" }), props: () => ({ section }),
-    exec: async (command, args) => { asked.push([command, ...args]); return answer; },
+    checking: () => false, settings: () => ({ language: "ko" }), props: () => ({ section }), machines: () => [],
+    readTextFile: async path => `/* ${path} */`,
+    exec: async (command, args, options) => { asked.push({ command, args, on: options?.on ?? null }); return typeof answer === "function" ? answer(options?.on ?? null) : answer; },
     ...overrides,
   });
   return { h, asked };
@@ -409,10 +410,33 @@ test("the Today section lists the projects from nv-today, main work first", asyn
   const projects = [{ id: "a", name: "fishhook", focus: "main", at: null }, { id: "b", name: "Danwol", focus: null, at: null }];
   const { h, asked } = sidebarSection("today", ok({ projects }));
   await h.settle();
-  assert.deepEqual(asked, [["node", "/local/herdr-app/bin/nv-today.mjs", "list", "--json"]]);
+  assert.equal(asked.length, 1);
+  assert.deepEqual(plain(asked[0].args.slice(0, 2)), ["--input-type=module", "-e"]);
+  assert.match(asked[0].args[2], /^\/\* \/local\/herdr-app\/bin\/nv-today\.mjs \*\/\n/);
+  assert.match(asked[0].args[2], /run\(\{"command":"list"/);
   const text = textOf(h.view.render());
   assert.ok(text.includes("오늘 · 이어하기"));
   assert.ok(text.indexOf("fishhook") < text.indexOf("Danwol"));
+});
+
+test("Today and Play also list what connected machines have; one that cannot answer is left out quietly", async () => {
+  const answers = { null: ok({ projects: [{ id: "a", name: "fishhook", focus: null }] }), lefairy: ok({ projects: [{ id: "a", name: "cafe24", focus: null }] }),
+    gone: { code: 1, stdout: "", stderr: "node: not found" } };
+  const { h, asked } = sidebarSection("today", on => answers[on], {
+    machines: () => [{ name: null, layout: "ready" }, { name: "lefairy", layout: "ready" }, { name: "gone", layout: "ready" }, { name: "off", layout: "unavailable" }],
+  });
+  await h.settle();
+  assert.deepEqual(asked.map(a => a.on), [null, "lefairy", "gone"]);
+  const view = h.view.render(), text = textOf(view);
+  assert.ok(text.includes("fishhook") && text.includes("cafe24") && !text.includes("not found"));
+  assert.ok(find(view, "row-a") && find(view, "row-lefairy/a"));
+});
+
+test("an app two Play accounts can see is listed once", async () => {
+  const app = { package: "com.toris.roomdoku", name: "Roomdoku", state: "review" };
+  const { h } = sidebarSection("play", ok({ accounts: [{ apps: [app] }, { apps: [{ ...app, state: "live" }] }] }));
+  await h.settle();
+  assert.equal(textOf(h.view.render()).split("Roomdoku").length - 1, 1);
 });
 
 test("the Play section lists every account's apps with their state", async () => {

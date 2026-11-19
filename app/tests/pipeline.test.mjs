@@ -61,6 +61,34 @@ const options = image => ({ status: "done", summary: "three", options: [
 ] });
 const team = stage => stage === "research" || stage === "design" ? options() : stage === "brief" ? { status: "done", summary: "brief", engine: "godot", package: "kr.toris.cat" } : { status: "done", summary: `${stage} ok` };
 
+test("an existing project keeps its engine and application id; a stack this pipeline does not build is refused with why", async () => {
+  const tasks = {};
+  const w = world({ agent: (stage, ctx) => { tasks[stage] = ctx; return team(stage); } });   // the brief would pick godot and kr.toris.cat
+  const put = (dir, path, text) => { mkdirSync(join(dir, ...path.slice(0, -1)), { recursive: true }); writeFileSync(join(dir, ...path), text); };
+  const flutter = join(w.root, "pocket");
+  put(flutter, ["pubspec.yaml"], "name: pocket\ndependencies:\n  flutter:\n    sdk: flutter\n");
+  put(flutter, ["android", "app", "build.gradle.kts"], 'android { defaultConfig { applicationId = "com.toris.pocket" } }');
+  const made = await w.run("new", "Pocket", "--dir", flutter, "--mode", "auto");
+  assert.deepEqual([made.engine, made.package], ["flutter", "com.toris.pocket"]);
+  const state = await advance(w.sys, "pocket");
+  assert.deepEqual([state.status, state.engine, state.package], ["done", "flutter", "com.toris.pocket"], "the brief does not move an existing project to another engine or id");
+  assert.match(tasks.brief.task, /already a \*\*flutter\*\* project/);
+  assert.ok(tasks.build.task.includes("Engine: **flutter**") && tasks.build.task.includes("com.toris.pocket"));
+  // Godot and Unity are recognised by their project files.
+  const godot = join(w.root, "g"), unity = join(w.root, "u");
+  put(godot, ["project.godot"], "config_version=5\n");
+  put(godot, ["export_presets.cfg"], '[preset.0]\nplatform="Android"\n[preset.0.options]\npackage/unique_name="com.toris.gdgame"\n');
+  put(unity, ["ProjectSettings", "ProjectVersion.txt"], "m_EditorVersion: 6000.0.1f1\n");
+  const g = await w.run("new", "G", "--dir", godot);
+  assert.deepEqual([g.engine, g.package], ["godot", "com.toris.gdgame"]);
+  assert.equal((await w.run("new", "U", "--dir", unity)).engine, "unity");
+  // A web or React Native folder is not silently rebuilt in another engine.
+  const web = join(w.root, "web");
+  put(web, ["package.json"], "{}");
+  await assert.rejects(w.run("new", "Web", "--dir", web), /JavaScript project \(package\.json\).*Flutter, Godot or Unity/s);
+  assert.equal((await w.run("new", "Fresh", "--dir", join(w.root, "fresh"))).engine, null, "an empty or new folder leaves the engine to the brief");
+});
+
 test("unattended mode runs every stage, takes the recommended options and ends each agent", async () => {
   const w = world({ agent: team });
   const made = await w.run("new", "Cat", "Cafe", "--idea", "cats", "--mode", "auto", "--kind", "game");

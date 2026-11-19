@@ -4,6 +4,8 @@ A team of agents takes an idea from research to the Play Store, and you watch th
 
 Open it from the **+** menu (**Auto app**) or with Ctrl+Shift+Y (Cmd+Shift+Y on macOS). Give it a project folder and say what to build; it runs from planning to release.
 
+The folder can be empty or an existing project. A Flutter (`pubspec.yaml`), Godot (`project.godot`) or Unity (`ProjectSettings/ProjectVersion.txt`) project keeps its engine and the Android application id it already has (from `android/app/build.gradle(.kts)`, `export_presets.cfg` or `ProjectSettings.asset`): the brief plans its next version instead of choosing again, so a published app is never released under a new id. A folder that is another stack (a `package.json` for web, Expo or React Native, or a native Gradle project) is refused when the app is created, with that reason: this pipeline builds Android apps with Flutter, Godot or Unity only.
+
 ## The team
 
 | Stage | Teammate | Makes |
@@ -132,6 +134,7 @@ An upload stage is never started again to repair its record: if the internal or 
 
 - **Python 3.8 or newer** (`python3`, `python` or `py -3`). The tools use the standard library only.
 - The pack is a copy in this repository, `app/pipeline/replica/`, of commit `77c9436` of the source, unmodified, with its MIT license; `app/pipeline/replica/UPSTREAM.md` records the source, the commit and how to move to a newer one. The installers copy it to `~/.config/herdr-app/pipeline/replica/` as one folder, so the paths between skills hold, and register the eleven skills in `~/.claude/skills` and `~/.agents/skills` where those exist (a skill folder of the same name that is your own is left alone). **Update** in the + menu installs the copy of the version you pull; nothing is fetched from the source's main branch.
+- The post that pointed to the pack ([Threads, @s.ha_min](https://www.threads.com/@s.ha_min/post/Df2A-DKGT2B), read 2026-11-19 from the page's text) describes "Replica 스킬" as eleven skills from analysing an app to releasing your own, installed in Claude Code with two commands and called from recon to deploy, and says to change the name, colours and logo before release. That matches the source's README (eleven skills, `/plugin marketplace add Jakeschincariol/replica-skill` and `/plugin install replica-skill@replica-skill`, recon … deploy). The page's text has no link to the repository, so the post and the repository are matched by that description, not by a link.
 - `nv-pipeline replica` shows where the pack is, its version, the Python it found and what is missing. When the pack or Python is missing, a run with Replica waits before its first stage and says so on the board; press **Continue** once it is there.
 
 ### Limits

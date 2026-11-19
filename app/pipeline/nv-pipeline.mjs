@@ -384,6 +384,7 @@ function task(sys, app, state, stage, member = { id: "", part: WORKER }) {
   const skills = state.replica ? replica.taskSection(sys, stage, { member, count: team.count, review: member.part === REVIEWER }) : null;
   return render(`${body}\n\n${skills ? `${skills}\n\n` : ""}${read("_rules.md")}`, {
     name: state.name, id: state.id, idea: state.idea || "(none: propose from what is trending)", kind: state.kind, engine: state.engine ?? "(decided in the brief stage)",
+    existing: state.existing ? `This folder is already a **${state.existing.engine}** project${state.existing.package ? ` with the application id \`${state.existing.package}\`` : ""}: keep that engine${state.existing.package ? " and that id" : ""} and put ${state.existing.package ? "them" : "it"} in your result unchanged; the brief plans the next version of it. Otherwise: ` : "",
     dir: app.dir, stage: stage.id, role, next: next ? `${next.role} (${next.id})` : "nobody: this is the last stage", minutes: stage.minutes,
     key: keyFile(sys), package: state.package ?? "(set in the brief stage)",
     idea_choice: chosen("research") ?? "(none)", design_choice: chosen("design") ?? "(none)",
@@ -884,7 +885,8 @@ export async function advance(sys, id, { until = null } = {}) {
         ask = Boolean(options) && s.mode === "review";
         picked = options && !ask ? options.find(o => o.id === autoPick(options)) : null;
         Object.assign(s.stages[stage.id], { status: ask ? "waiting" : "done", summary: result.summary, endedAt: ended });
-        for (const field of ["engine", "package", "title"]) if (typeof result[field] === "string" && result[field]) s[field] = result[field];
+        // An existing project keeps the engine and the application id it was found with.
+        for (const field of ["engine", "package", "title"]) if (typeof result[field] === "string" && result[field] && !s.existing?.[field]) s[field] = result[field];
         if (result.replicaSteps) {
           s.stages[stage.id].replica = { version: result.replicaVersion ?? null, at: ended, steps: result.replicaSteps };
           const uploaded = stage.id === "internal" ? result.replicaSteps.map(x => x.versionCode).find(Boolean) : null;
@@ -907,6 +909,26 @@ export async function advance(sys, id, { until = null } = {}) {
 
 // ---------------------------------------------------------------- commands
 
+const readText = file => { try { return readFileSync(file, "utf8"); } catch { return null; } };
+
+/** What an existing project folder already is: { engine, package } for Flutter, Godot and Unity; { other } for a
+ *  stack this pipeline does not build; null for an empty or new folder. */
+export function projectStack(dir) {
+  const has = path => existsSync(join(dir, path));
+  const engine = /^\s*flutter:\s*$|sdk:\s*flutter/m.test(readText(join(dir, "pubspec.yaml")) ?? "") ? "flutter"
+    : has("project.godot") ? "godot" : has(join("ProjectSettings", "ProjectVersion.txt")) ? "unity" : null;
+  if (!engine) {
+    const other = has("package.json") ? "a JavaScript project (package.json): web, Expo or React Native"
+      : has("build.gradle.kts") || has("build.gradle") ? "a native Android project (Gradle)" : null;
+    return other ? { other } : null;
+  }
+  // The application id it already ships with, so a published app is updated, never released under a new id.
+  const id = ["android/app/build.gradle.kts", "android/app/build.gradle"].map(f => /applicationId\s*=?\s*["']([\w.]+)["']/.exec(readText(join(dir, f)) ?? "")?.[1]).find(Boolean)
+    ?? /package\/unique_name\s*=\s*"([\w.]+)"/.exec(readText(join(dir, "export_presets.cfg")) ?? "")?.[1]
+    ?? /applicationIdentifier:[\s\S]*?Android:\s*([\w.]+)/.exec(readText(join(dir, "ProjectSettings", "ProjectSettings.asset")) ?? "")?.[1] ?? null;
+  return { engine, package: id };
+}
+
 function create(sys, name, flags) {
   if (!name) throw new UsageError('new needs a name: nv-pipeline new "Cat Cafe" --idea "..."');
   const kind = flags.kind ?? "auto", mode = flags.mode ?? "promote";
@@ -920,8 +942,11 @@ function create(sys, name, flags) {
     for (let n = 2; apps.some(a => a.id === id); n++) id = `${slug(name)}-${n}`;
     const dir = resolve(flags.dir ? flags.dir.replace(/^~(?=$|[\\/])/, homedir()) : join(settings(sys).root, id));
     if (existsSync(stateFile(dir))) throw new UsageError(`${dir} already has a pipeline`);
+    const stack = projectStack(dir);
+    if (stack?.other) throw new UsageError(`${dir} is ${stack.other}. The Auto app builds Android apps with Flutter, Godot or Unity: give an empty folder, or a Flutter, Godot or Unity project.`);
     const state = {
-      id, tag: shortTag(id, apps.map(a => readJson(stateFile(a.dir), {}).tag).filter(Boolean)), generation: 0, name, idea: flags.idea ?? "", refs: (flags.ref ?? []).map((r, i) => reference(r, dir, i)), kind, mode, engine: null, status: "idle", stage: STAGES[0].id, gate: null,
+      id, tag: shortTag(id, apps.map(a => readJson(stateFile(a.dir), {}).tag).filter(Boolean)), generation: 0, name, idea: flags.idea ?? "", refs: (flags.ref ?? []).map((r, i) => reference(r, dir, i)), kind, mode, engine: stack?.engine ?? null,
+      ...(stack ? { package: stack.package, existing: { engine: stack.engine, package: stack.package } } : {}), status: "idle", stage: STAGES[0].id, gate: null,
       stages: Object.fromEntries(STAGES.map(s => [s.id, { status: "pending", tries: 0 }])), options: {}, choice: {}, approved: {}, cast, loops: 0, replica: Boolean(flags.replica),
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), log: [{ at: new Date().toISOString(), text: "created" }],
     };

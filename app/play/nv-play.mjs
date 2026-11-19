@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // nv-play: what a developer account has on Google Play, release by release. For every app of the
 // account it reads each track (production, open, closed, internal) and says what is published,
-// what is in review, what was rejected and what is still a draft. It only reads: every call to
-// Google is a GET (and one token request). No agent, no tokens.
+// what is in review, what was rejected and what is still a draft, and which developer owns it (the
+// name on its public store page). It only reads: every call to Google is a GET (and one token
+// request). No agent, no tokens.
 //
 //   nv-play list [--refresh] [--max-age MIN]     every account and its apps (from the last check;
 //                                                --refresh asks Google again, --max-age only when older)
@@ -93,6 +94,20 @@ export function summarize(tracks) {
   return { state, live };
 }
 
+/** The developer named on a public store page (its JSON-LD "author"), or null. */
+export function developerOf(html) {
+  const m = /"author":\{"@type":"\w+","name":"((?:[^"\\]|\\.)*)"/.exec(String(html ?? ""));
+  if (!m) return null;
+  try { return JSON.parse(`"${m[1]}"`) || null; } catch { return null; }
+}
+
+/** The developers of an account's apps, the most common first. */
+export const developersOf = apps => {
+  const count = new Map();
+  for (const app of apps) if (app.developer) count.set(app.developer, (count.get(app.developer) ?? 0) + 1);
+  return [...count].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+};
+
 /** Which project folder builds which package: the Android application id, or the fastlane Appfile, of each folder in `root`. */
 export function foldersOf(root) {
   const found = {};
@@ -132,21 +147,26 @@ async function check(account, io, before = []) {
   const jobs = apps.flatMap(app => [...TRACKS.map(track => ({ app, track })), { app, store: true }]);
   const results = await pool(jobs, async job => {
     try {
-      if (job.store) { const r = await io.fetch(`https://play.google.com/store/apps/details?id=${job.app.package}`, { redirect: "manual" }); return r.status === 200 ? "live" : r.status === 404 ? "missing" : null; }
+      if (job.store) {
+        const r = await io.fetch(`https://play.google.com/store/apps/details?id=${job.app.package}`, { redirect: "manual" });
+        return r.status === 200 ? { store: "live", developer: developerOf(await r.text().catch(() => "")) } : { store: r.status === 404 ? "missing" : null };
+      }
       const r = await getJson(io, `${API}/${job.app.package}/tracks/${job.track}/releases`, bearer);
       if (r.status === 204) return [];                               // a track with no release answers with no content
       if (r.status !== 200) return { error: r.status === 404 ? null : `HTTP ${r.status}${r.message ? `: ${r.message}` : ""}` };
       return (r.data.releases ?? []).map(x => ({ name: x.releaseName ?? "", codes: (x.activeArtifacts ?? []).map(a => a.versionCode).filter(Boolean), state: stateOf(x.releaseLifecycleState) }));
-    } catch (error) { return job.store ? null : { error: String(error?.message ?? error) }; }
+    } catch (error) { return job.store ? { store: null } : { error: String(error?.message ?? error) }; }
   });
   const order = { rejected: 0, review: 1, ready: 2, draft: 3, other: 4, testing: 5, live: 6, none: 7 };
   return apps.map((app, i) => {
-    const mine = results.slice(i * per, (i + 1) * per), tracks = {}, errors = [], old = before.find(b => b.package === app.package)?.tracks ?? {};
+    const mine = results.slice(i * per, (i + 1) * per), tracks = {}, errors = [], prev = before.find(b => b.package === app.package), old = prev?.tracks ?? {};
     TRACKS.forEach((track, t) => {
       if (Array.isArray(mine[t])) { if (mine[t].length) tracks[track] = mine[t]; return; }
       if (mine[t]?.error) { errors.push(`${track}: ${mine[t].error}`); if (old[track]) tracks[track] = old[track]; }
     });
-    return { ...app, tracks, ...summarize(tracks), store: mine[TRACKS.length], folder: folders[app.package] ?? null, ...(errors.length ? { error: errors[0] } : {}) };
+    const { store, developer } = mine[TRACKS.length];
+    // The developer is only on a public store page: an app without one keeps the name the last check read.
+    return { ...app, tracks, ...summarize(tracks), store, developer: developer ?? prev?.developer ?? null, folder: folders[app.package] ?? null, ...(errors.length ? { error: errors[0] } : {}) };
   }).sort((a, b) => order[a.state] - order[b.state] || a.name.localeCompare(b.name));
 }
 
@@ -168,7 +188,8 @@ async function list(home, flags, io) {
   if (changed) writeJson(join(home, "cache.json"), cache);
   return { version: 1, tool: join(dirname(home), "bin", "nv-play.mjs"), accounts: data.accounts.map(a => {
     const c = cache.accounts[a.id] ?? {};
-    return { id: a.id, name: a.name, key: a.key, at: c.at ?? null, error: c.error ?? null, apps: c.apps ?? [] };
+    const apps = c.apps ?? [];
+    return { id: a.id, name: a.name, key: a.key, developers: developersOf(apps), at: c.at ?? null, error: c.error ?? null, apps };
   }) };
 }
 
@@ -235,7 +256,7 @@ function print(command, result) {
   if (command !== "list") return console.log(Object.entries(result).map(([k, v]) => `${k}: ${v}`).join("  "));
   if (!result.accounts.length) return console.log("no account yet: nv-play account add <name> <key.json>");
   for (const a of result.accounts) {
-    console.log(`${a.name}  ${a.apps.length} apps  ${a.at ? `checked ${a.at}` : "not checked yet (--refresh)"}${a.error ? `  failed: ${a.error}` : ""}`);
+    console.log(`${a.name}${a.developers.length ? `  developer ${a.developers.join(", ")}` : ""}  ${a.apps.length} apps  ${a.at ? `checked ${a.at}` : "not checked yet (--refresh)"}${a.error ? `  failed: ${a.error}` : ""}`);
     for (const app of a.apps) {
       const releases = TRACKS.flatMap(t => (app.tracks[t] ?? []).map(r => `${t} ${r.name || r.codes.join(",")} ${r.state}`)).join(" | ");
       console.log(`  ${(WORD[app.state] ?? app.state).padEnd(24)} ${app.name}  (${app.package})${releases ? `  ${releases}` : ""}`);

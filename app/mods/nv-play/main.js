@@ -1,7 +1,7 @@
 // Play check: what a developer account has on Google Play, app by app.
 //   - every app of the account with its releases on each track (production, open, closed, internal):
 //     published, in review, rejected, approved but not published, draft
-//   - whether the public store page answers, and the project folder that builds the app
+//   - whether the public store page answers, the developer it names, and the project folder that builds the app
 //   - filters for what needs a look; Open goes to the store page, Space to the project's space
 // bin/nv-play.mjs asks Google (read only, no tokens) and keeps the last answer. This mod runs it on
 // this computer and on every connected machine, so an account is checked where its key file is.
@@ -22,7 +22,7 @@ const TEXT = {
     states: { live: "Published", review: "In review", rejected: "Rejected", ready: "Approved, not published", draft: "Draft, not sent", testing: "Testing only", none: "No release", other: "Production" },
     release: { published: "published", in_review: "in review", not_approved: "rejected", approved_not_published: "approved, not published", draft: "draft", not_sent_for_review: "not sent for review" },
     tracks: { production: "Production", beta: "Open test", alpha: "Closed test", internal: "Internal" },
-    storeLive: "store page is public", storeMissing: "no public store page", open: "Store page", space: "Open space", none: "Nothing here." },
+    developer: "Developer", storeLive: "store page is public", storeMissing: "no public store page", open: "Store page", space: "Open space", none: "Nothing here." },
   ko: { title: "Play 체크", all: "전체", review: "검토 중", look: "확인 필요", live: "출시됨", testing: "테스트만", refresh: "지금 확인", checkingNow: "Google Play 에 묻는 중…", loading: "읽는 중…",
     addAccount: "+ 계정", local: "이 컴퓨터", apps: "개 앱", checked: "{ago} 전 확인", never: "아직 확인 안 함", failed: "마지막 확인 실패: {why}",
     empty: "아직 Play 계정이 없습니다. 서비스 계정 키(fastlane 이 업로드에 쓰는 JSON 파일)를 추가하면 그 계정의 모든 앱이 나옵니다.",
@@ -30,7 +30,7 @@ const TEXT = {
     states: { live: "출시됨", review: "검토 중", rejected: "반려됨", ready: "승인됨 · 게시 대기", draft: "초안 · 미제출", testing: "테스트만", none: "출시 없음", other: "프로덕션" },
     release: { published: "출시됨", in_review: "검토 중", not_approved: "반려됨", approved_not_published: "승인됨 · 게시 대기", draft: "초안", not_sent_for_review: "검토 미제출" },
     tracks: { production: "프로덕션", beta: "공개 테스트", alpha: "비공개 테스트", internal: "내부 테스트" },
-    storeLive: "스토어 페이지 공개", storeMissing: "스토어 페이지 없음", open: "스토어 페이지", space: "공간 열기", none: "해당하는 앱이 없습니다." },
+    developer: "개발자", storeLive: "스토어 페이지 공개", storeMissing: "스토어 페이지 없음", open: "스토어 페이지", space: "공간 열기", none: "해당하는 앱이 없습니다." },
 };
 const language = value => { const k = String(value ?? "").trim().toLowerCase().split(/[-_]/)[0]; return Object.hasOwn(TEXT, k) ? k : null; };
 const copy = () => TEXT[language(shared("nv.language")) ?? language(settings().language) ?? language(settings().locale) ?? "en"];
@@ -159,7 +159,7 @@ export default class PlayCheck extends View {
         .child(this.button("cancel-account", l.cancel, () => { this.form = null; }, t)));
   }
 
-  appRow(app, machine, t, l) {
+  appRow(app, machine, t, l, owner) {
     const k = app.package;
     const chips = TRACKS.flatMap(track => (app.tracks?.[track] ?? []).map((r, i) => div().id(`release-${k}-${track}-${i}`).px(6).py(1).rounded(8).flex_none().text_size(10).bg(t.raised)
       .text_color(r.state === "not_approved" ? t.blocked : r.state === "in_review" || r.state === "approved_not_published" ? t.accent : r.state === "published" && track === "production" ? t.done : t.muted)
@@ -169,6 +169,7 @@ export default class PlayCheck extends View {
         .child(div().id(`state-${k}`).w(112).flex_none().text_size(11).font_semibold().text_color(this.tint(app.state, t)).child(l.states[app.state] ?? app.state))
         .child(div().font_semibold().text_size(13).truncate().child(app.name))
         .child(div().flex_none().text_size(10).text_color(t.dim).child(app.package))
+        .when(Boolean(app.developer) && app.developer !== owner, el => el.child(div().id(`developer-${k}`).flex_none().text_size(10).text_color(t.accent).child(`${l.developer} ${app.developer}`)))
         .child(div().flex_1())
         .when(Boolean(app.store), el => el.child(div().id(`store-${k}`).flex_none().text_size(10).text_color(app.store === "live" ? t.done : app.live ? t.blocked : t.dim).child(app.store === "live" ? l.storeLive : l.storeMissing)))
         .when(app.store === "live", el => el.child(this.button(`open-${k}`, l.open, () => this.openStore(app.package), t, { small: true })))
@@ -184,11 +185,12 @@ export default class PlayCheck extends View {
       return v_flex().id(`account-${k}`).gap(6)
         .child(h_flex().gap(8).items_center()
           .child(div().font_semibold().text_size(12).child(a.name))
+          .when((a.developers ?? []).length > 0, el => el.child(div().id(`developers-${k}`).text_size(11).text_color(t.accent).child(`${l.developer} ${a.developers.join(", ")}`)))
           .child(div().text_size(11).text_color(t.dim).child(`${machine ?? l.local} · ${a.apps.length}${l.apps.startsWith("개") ? "" : " "}${l.apps} · ${a.at ? l.checked.replace("{ago}", ago(a.at, now)) : l.never}`))
           .child(div().flex_1())
           .child(this.button(`remove-${k}`, l.remove, cx => this.removeAccount(machine, a.id, cx), t, { small: true, danger: true })))
         .when(Boolean(a.error), el => el.child(div().id(`failed-${k}`).text_size(11).text_color(t.blocked).child(l.failed.replace("{why}", a.error))))
-        .children(shown.map(app => this.appRow(app, machine, t, l)))
+        .children(shown.map(app => this.appRow(app, machine, t, l, a.developers?.[0])))
         .when(shown.length === 0 && Boolean(a.at), el => el.child(div().id(`none-${k}`).p(10).text_size(11).text_color(t.dim).child(l.none)));
     };
     return v_flex().id("nv-play").size_full().min_h(0).bg(t.background).text_color(t.foreground).text_size(12)

@@ -4,18 +4,19 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { UsageError, foldersOf, parseArgs, run, summarize } from "../play/nv-play.mjs";
+import { UsageError, developerOf, foldersOf, parseArgs, run, summarize } from "../play/nv-play.mjs";
 
 const pair = generateKeyPairSync("rsa", { modulusLength: 2048, privateKeyEncoding: { type: "pkcs8", format: "pem" }, publicKeyEncoding: { type: "spki", format: "pem" } });
 const rel = (name, state, code = 1) => ({ releaseName: name, activeArtifacts: [{ versionCode: code }], releaseLifecycleState: `RELEASE_LIFECYCLE_STATE_${state}` });
 
 /** A temporary home with a service-account key, and a Google that answers from `tracks` ({ package: { track: [release] } }). */
-function world(tracks = {}, { apps = Object.keys(tracks), store = {}, token = true } = {}) {
+function world(tracks = {}, { apps = Object.keys(tracks), store = {}, developers = {}, token = true } = {}) {
   const root = mkdtempSync(join(tmpdir(), "nv-play-")), home = join(root, "herdr-app", "play"), key = join(root, "key.json"), projects = join(root, "projects");
   mkdirSync(projects);
   writeFileSync(key, JSON.stringify({ type: "service_account", client_email: "bot@example.iam.gserviceaccount.com", private_key: pair.privateKey, token_uri: "https://oauth2.example/token" }));
   const seen = [];
-  const answer = (status, body) => ({ status, json: async () => { if (body === undefined) throw new SyntaxError("Unexpected end of JSON input"); return body; } });
+  const answer = (status, body, html = "") => ({ status, text: async () => html, json: async () => { if (body === undefined) throw new SyntaxError("Unexpected end of JSON input"); return body; } });
+  const page = id => `<script type="application/ld+json">{"@type":"SoftwareApplication","author":{"@type":"Person","name":${JSON.stringify(developers[id] ?? "Toris")},"url":"https://toris.kr"}}</script>`;
   const fetch = async (url, init = {}) => {
     seen.push({ url, method: init.method ?? "GET", auth: init.headers?.authorization ?? null, body: init.body ?? null });
     if (url === "https://oauth2.example/token") return token ? answer(200, { access_token: "tok" }) : answer(400, { error: "invalid_grant", error_description: "Invalid JWT Signature." });
@@ -24,7 +25,7 @@ function world(tracks = {}, { apps = Object.keys(tracks), store = {}, token = tr
       const mine = apps.length > 1 ? (second ? apps.slice(1) : apps.slice(0, 1)) : apps;
       return answer(200, { apps: mine.map(p => ({ packageName: p, displayName: `App ${p.split(".").at(-1)}` })), ...(apps.length > 1 && !second ? { nextPageToken: "next" } : {}) });
     }
-    if (url.startsWith("https://play.google.com/store/apps/details?id=")) return answer(store[url.split("id=")[1]] ?? 404, {});
+    if (url.startsWith("https://play.google.com/store/apps/details?id=")) { const id = url.split("id=")[1]; return answer(store[id] ?? 404, {}, page(id)); }
     const m = /applications\/([\w.]+)\/tracks\/(\w+)\/releases$/.exec(url);
     if (!m) return answer(500, {});
     const got = tracks[m[1]]?.[m[2]];
@@ -64,7 +65,7 @@ test("a check reads every app and track with GET requests only, and says where e
     "com.t.testing": { internal: [rel("3", "PUBLISHED", 3)] },
     "com.t.empty": { production: "empty", beta: "empty" },
     "com.t.denied": { production: "denied" },
-  }, { store: { "com.t.live": 200, "com.t.review": 200 } });
+  }, { store: { "com.t.live": 200, "com.t.review": 200, "com.t.rejected": 200 }, developers: { "com.t.review": "Wake \"Mission\"" } });
   mkdirSync(join(w.projects, "live_app", "android", "app"), { recursive: true });
   writeFileSync(join(w.projects, "live_app", "android", "app", "build.gradle.kts"), 'android {\n  defaultConfig { applicationId = "com.t.live" }\n}');
   await w.nv("account", "add", "Toris", w.key, "--projects", w.projects);
@@ -77,6 +78,10 @@ test("a check reads every app and track with GET requests only, and says where e
   assert.deepEqual(live.tracks, { production: [{ name: "1.2 - 큰 업데이트", codes: [12], state: "published" }], internal: [{ name: "12 (1.2)", codes: [12], state: "published" }] });
   assert.deepEqual([live.name, live.store, live.folder], ["App live", "live", join(w.projects, "live_app")]);
   assert.equal(a.apps.find(x => x.package === "com.t.testing").store, "missing");
+  // The developer is the one the public store page names; the account lists its developers, the most common first.
+  assert.deepEqual(a.apps.map(x => [x.package, x.developer]), [["com.t.rejected", "Toris"], ["com.t.review", 'Wake "Mission"'], ["com.t.testing", null],
+    ["com.t.live", "Toris"], ["com.t.denied", null], ["com.t.empty", null]]);
+  assert.deepEqual(a.developers, ["Toris", 'Wake "Mission"']);
   assert.match(a.apps.find(x => x.package === "com.t.denied").error, /production: HTTP 403: The caller does not have permission/);   // a track that cannot be read is said, a track that does not exist is not
   assert.equal(a.apps.find(x => x.package === "com.t.empty").error, undefined);
   // Only the token request is a POST; everything sent to Google Play is a GET with the token.
@@ -109,13 +114,15 @@ test("the last check is kept: it is read without asking Google until it is old o
 
 test("a track that cannot be read this time keeps the releases the last check read", async () => {
   const tracks = { "com.t.a": { production: [rel("2.0", "IN_REVIEW"), rel("1.0", "PUBLISHED")], internal: [rel("9", "PUBLISHED")] } };
-  const w = world(tracks);
+  const store = { "com.t.a": 200 }, w = world(tracks, { store });
   await w.nv("account", "add", "Toris", w.key);
   await w.nv("list", "--refresh");
+  assert.equal((await w.nv("list")).accounts[0].apps[0].developer, "Toris");
   tracks["com.t.a"].production = "denied";                       // Google limits how often releases are listed
   tracks["com.t.a"].internal = [rel("10", "PUBLISHED")];
+  store["com.t.a"] = 503;                                         // and the store page does not answer this time
   const app = (await w.nv("list", "--refresh")).accounts[0].apps[0];
-  assert.deepEqual([app.state, app.live, app.tracks.production.length, app.tracks.internal[0].name], ["review", true, 2, "10"]);
+  assert.deepEqual([app.state, app.live, app.tracks.production.length, app.tracks.internal[0].name, app.developer], ["review", true, 2, "10", "Toris"]);
   assert.match(app.error, /production: HTTP 403/);
 });
 
@@ -152,6 +159,12 @@ test("a rejection only counts while it is the newest version: a later approved o
   assert.deepEqual(summarize({ production: [v("not_approved", 3), v("in_review", 4)] }), { state: "rejected", live: false });
   assert.deepEqual(summarize({ production: [v("not_approved", 3), v("draft", 4)] }), { state: "rejected", live: false });
   assert.deepEqual(summarize({ production: [v("published", 4), v("not_approved", 5)] }), { state: "rejected", live: true });
+});
+
+test("the developer is read from the JSON-LD author of a store page", () => {
+  assert.equal(developerOf('..."author":{"@type":"Organization","name":"Acme \\u0026 Co","url":"x"}...'), "Acme & Co");
+  assert.equal(developerOf("<html>no author</html>"), null);
+  assert.equal(developerOf(undefined), null);
 });
 
 test("project folders are matched to packages by the Android application id or the fastlane Appfile", () => {

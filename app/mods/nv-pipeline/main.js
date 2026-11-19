@@ -25,6 +25,9 @@ const TEXT = {
     refs: "References: Play Store links, repositories (space-separated). Drop screenshots here too.", refsHelp: "References are studied, never copied: ours gets its own name, art and text.",
     dir: "Project folder (empty: a new folder under {root})", browse: "Choose folder…", needIdea: "Say what to build, or give it a name.", auto: "Auto app: from plan to store", kind: { auto: "Decide for me", app: "App", game: "Game" },
     mode: { auto: "Unattended", promote: "Ask before production", review: "Ask at every choice" },
+    replica: { use: "Use the Replica skills", on: "Replica", help: "Eleven skills inside the stages: the reference app is analysed, real reviews are read, features are tracked in a matrix, and the conductor checks parity, leftovers of the reference and the listing before anything is uploaded. Needs Python 3.8+.", missing: "The Replica skill pack is not installed on that machine: run this pack's installer there.",
+      title: "Replica skills in this stage", none: "uses the files the skills left", files: "Files", sample: "{n} reviews collected",
+      status: { planned: "planned", running: "in progress", done: "done", skipped: "not needed", failed: "failed", unchecked: "not checked" } },
     modeHelp: { auto: "Nobody is asked, production included.", promote: "Choices are automatic; production waits for you.", review: "You pick the idea and the design, and approve production." },
     start: "Start", startNoKey: "Start without the key (asked again before upload)", cancel: "Cancel", empty: "No app yet. Start one and watch the team work.",
     drop: "Drop the Play service account key (.json) here", dropHelp: "Google Cloud > IAM > Service accounts > Keys. Invite its email in Play Console > Users and permissions.", keyOk: "Key saved for",
@@ -48,6 +51,9 @@ const TEXT = {
     refs: "레퍼런스: 플레이스토어 링크, 저장소 (띄어쓰기로 구분). 스크린샷은 여기에 끌어다 놓으세요.", refsHelp: "레퍼런스는 참고만 하고 베끼지 않습니다. 이름·그림·문구는 새로 만듭니다.",
     dir: "프로젝트 폴더 (비우면 {root} 아래 새 폴더)", browse: "폴더 선택…", needIdea: "무엇을 만들지 적거나 이름을 정해 주세요.", auto: "Auto app: 기획부터 스토어까지", kind: { auto: "알아서", app: "앱", game: "게임" },
     mode: { auto: "무인", promote: "승격만 확인", review: "모두 확인" },
+    replica: { use: "Replica 스킬 사용", on: "Replica", help: "단계 안에서 11개 스킬을 씁니다. 참고 앱을 분석하고, 실제 리뷰를 읽고, 기능을 표로 추적하며, 업로드 전에 지휘자가 기능 충족·참고 앱 잔여물·스토어 문구를 직접 검사합니다. Python 3.8 이상이 필요합니다.", missing: "그 머신에 Replica 스킬 묶음이 설치돼 있지 않습니다. 거기서 이 팩의 설치 스크립트를 실행하세요.",
+      title: "이 단계의 Replica 스킬", none: "스킬이 남긴 파일을 사용", files: "산출물", sample: "리뷰 {n}건 수집",
+      status: { planned: "예정", running: "진행 중", done: "완료", skipped: "해당 없음", failed: "실패", unchecked: "검사 전" } },
     modeHelp: { auto: "프로덕션까지 아무것도 묻지 않습니다.", promote: "선택은 자동이고, 프로덕션 승격만 기다립니다.", review: "기획과 디자인을 직접 고르고 승격도 승인합니다." },
     start: "시작", startNoKey: "키 없이 시작 (업로드 전에 다시 요청)", cancel: "취소", empty: "아직 앱이 없습니다. 하나 시작하고 팀이 일하는 걸 지켜보세요.",
     drop: "Play 서비스 계정 키(.json)를 여기에 끌어다 놓으세요", dropHelp: "Google Cloud > IAM > 서비스 계정 > 키. 그 이메일을 Play Console > 사용자 및 권한에 초대하세요.", keyOk: "키 저장됨:",
@@ -248,11 +254,11 @@ export default class Pipeline extends View {
     // The name may be left out: the folder's name, else the first words of the request.
     const name = this.nameInput.value().trim() || dir.split(/[\\/]/).filter(Boolean).at(-1) || idea.split(/\s+/).slice(0, 4).join(" ");
     if (!name) { this.note = copy().needIdea; cx.notify(); return; }
-    const { kind, mode } = this.form;
+    const { kind, mode } = this.form, withReplica = Boolean(this.form.replica);
     cx.spawn(async cx => {
       try {
         const refs = [...this.refsInput.value().split(/[\s,]+/).filter(Boolean), ...this.refImages];
-        const r = await this.nv(["new", name, "--idea", idea, "--kind", kind, "--mode", mode, ...(dir ? ["--dir", dir] : []), ...refs.flatMap(x => ["--ref", x]), ...this.castFlags()]);
+        const r = await this.nv(["new", name, "--idea", idea, "--kind", kind, "--mode", mode, ...(dir ? ["--dir", dir] : []), ...refs.flatMap(x => ["--ref", x]), ...this.castFlags(), ...(withReplica ? ["--replica"] : [])]);
         if (r.code !== 0) { this.note = this.errorOf(r); cx.notify(); return; }
         const made = JSON.parse(r.stdout);
         this.select(made.id);
@@ -389,10 +395,37 @@ export default class Pipeline extends View {
       .child(chips("kind", ["auto", "app", "game"], l.kind, this.form.kind, v => { this.form.kind = v; }))
       .child(chips("mode", ["auto", "promote", "review"], l.mode, this.form.mode, v => { this.form.mode = v; }))
       .child(div().text_size(11).text_color(t.muted).child(l.modeHelp[this.form.mode]))
+      .child(h_flex().gap(8).items_center()
+        .child(this.button("replica", `${this.form.replica ? "✓ " : ""}${l.replica.use}`, cx => { this.form.replica = !this.form.replica; cx.notify(); }, t, { primary: Boolean(this.form.replica) }))
+        .when(Boolean(this.data.replica?.version), el => el.child(div().text_size(10).text_color(t.dim).child(this.data.replica.version))))
+      .when(Boolean(this.form.replica), el => el.child(div().id("replica-help").text_size(11).text_color(this.data.replica?.installed === false ? t.blocked : t.muted)
+        .child(this.data.replica?.installed === false ? l.replica.missing : l.replica.help)))
       .child(this.teamForm(t, l))
       .child(h_flex().gap(8)
         .child(this.button("start", hasKey ? l.start : l.startNoKey, cx => this.create(cx), t, { primary: true }))
         .child(this.button("cancel", l.cancel, cx => { this.form = null; cx.notify(); }, t)));
+  }
+
+  /** The Replica skills of one stage: each with where it stands, why it was not needed or what the
+   *  conductor's check said, and the files it leaves (lit when they exist). */
+  replicaSteps(steps, rec, t, l) {
+    const r = l.replica, tint = status => status === "done" ? t.done : status === "failed" ? t.blocked : status === "running" ? t.working : t.muted;
+    return v_flex().id("replica").gap(5).p(8).rounded(8).bg(t.surface).border_1().border_color(steps.some(x => x.status === "failed") ? t.blocked : t.border)
+      .child(h_flex().gap(6).items_center()
+        .child(div().text_size(11).font_semibold().child(r.title))
+        .when(Boolean(rec.replica?.version), el => el.child(div().text_size(10).text_color(t.dim).child(String(rec.replica.version).slice(0, 7)))))
+      .children(steps.map((x, i) => {
+        const bad = x.checks.find(c => !c.ok), said = x.reason ?? bad?.detail ?? x.checks.find(c => c.detail)?.detail ?? null;
+        return v_flex().id(`replica-step-${i}`).gap(3)
+          .child(h_flex().gap(6).items_center()
+            .child(div().w(150).flex_none().text_size(11).font_semibold().truncate().child(x.skill ? `${x.skill.replace("replica-", "")}${x.part ? ` (${x.part})` : ""}` : r.none))
+            .child(div().flex_1().min_w(0).text_size(11).text_color(t.muted).truncate().child(lang() === "ko" ? x.ko : ""))
+            .when(x.sample != null, el => el.child(div().flex_none().text_size(10).text_color(t.dim).child(r.sample.replace("{n}", x.sample))))
+            .child(div().id(`replica-status-${i}`).flex_none().px(6).py(1).rounded(8).text_size(10).bg(t.raised).text_color(tint(x.status)).child(r.status[x.status] ?? x.status)))
+          .when(Boolean(said), el => el.child(div().id(`replica-said-${i}`).pl(8).text_size(10).text_color(bad ? t.blocked : t.dim).child(String(said))))
+          .when(x.files.length > 0, el => el.child(h_flex().gap(4).flex_wrap().pl(8).children(x.files.map((file, n) =>
+            div().id(`replica-file-${i}-${n}`).px(5).rounded(4).text_size(10).bg(t.raised).text_color(file.exists ? t.accent : t.dim).child(file.path)))));
+      }));
   }
 
   /** One role's cast as a row of chips: which agent, its model, how many at once, who reviews.
@@ -580,6 +613,7 @@ export default class Pipeline extends View {
         .child(h_flex().child(this.button("continue-stalled-detail", l.resume, cx => cx.spawn(async cx => { await this.resume(app.id); this.load(cx); }), t, { primary: true })))))
       .when(key === "quiet", el => el.child(div().id("quiet").text_size(12).text_color(t.blocked).child(l.quiet)))
       .when(members.length > 0, el => el.child(v_flex().id("members").gap(4).children(members)))
+      .when(Boolean(app.replica?.[id]?.length), el => el.child(this.replicaSteps(app.replica[id], rec, t, l)))
       .when(rec.status === "pending" && Boolean(cast) && Boolean(this.catalog) && Boolean(stage), el => el.child(
         this.teamRow("cast", stage, { ...cast, split: Boolean(this.catalog.team?.[id]?.split) }, recast, t, l)))
       .when(picking, el => el.child(div().font_semibold().text_color(t.blocked).child(l.pick)))

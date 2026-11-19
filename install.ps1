@@ -59,6 +59,11 @@ if (Test-Path $app) {
   Copy-Item (Join-Path $here 'app\browser\nv-web.mjs') (Join-Path $app 'bin\nv-web.mjs') -Force
   Copy-Item (Join-Path $here 'app\pipeline\nv-pipeline.mjs') (Join-Path $app 'bin\nv-pipeline.mjs') -Force
   Copy-Item (Join-Path $here 'app\pipeline\nv-graphics.mjs') (Join-Path $app 'bin\nv-graphics.mjs') -Force
+  Copy-Item (Join-Path $here 'app\pipeline\nv-replica.mjs') (Join-Path $app 'bin\nv-replica.mjs') -Force
+  # The Replica skill pack (app\pipeline\replica\UPSTREAM.md): eleven skills and their Python tools, copied
+  # as one folder so the paths between them hold. It is the copy in this repository, never a download.
+  New-Item -ItemType Directory -Force (Join-Path $app 'pipeline\replica') | Out-Null
+  Copy-Item (Join-Path $here 'app\pipeline\replica\*') (Join-Path $app 'pipeline\replica') -Recurse -Force
   New-Item -ItemType Directory -Force (Join-Path $app 'pipeline\stages') | Out-Null
   Copy-Item (Join-Path $here 'app\pipeline\stages\*.md') (Join-Path $app 'pipeline\stages') -Force
   Copy-Item (Join-Path $here 'app\usage\nv-usage.mjs') (Join-Path $app 'bin\nv-usage.mjs') -Force
@@ -78,6 +83,18 @@ if (Test-Path $app) {
       New-Item -ItemType Directory -Force $dest | Out-Null
       Copy-Item (Join-Path $here 'skills\herdr-hc\SKILL.md') (Join-Path $dest 'SKILL.md') -Force
       "installed skill herdr-hc -> $dest"
+      # The Replica skills, for agents that load skills by name. A folder of the same name that this
+      # pack did not put there is the person's own and is left as it is.
+      $kept = @()
+      foreach ($skill in (Get-ChildItem (Join-Path $here 'app\pipeline\replica') -Directory -Filter 'replica-*')) {
+        $to = Join-Path $skills $skill.Name
+        if ((-not (Test-Path $to)) -or (Test-Path (Join-Path $to '.herdr-toris-neon'))) {
+          New-Item -ItemType Directory -Force $to | Out-Null
+          Copy-Item (Join-Path $skill.FullName '*') $to -Recurse -Force
+          [IO.File]::WriteAllText((Join-Path $to '.herdr-toris-neon'), '')
+        } else { $kept += $skill.Name }
+      }
+      "installed the Replica skills -> $skills\replica-*" + $(if ($kept) { " (left as they were: $($kept -join ', '))" } else { '' })
     }
   }
   "installed Herdr app pack -> $app"

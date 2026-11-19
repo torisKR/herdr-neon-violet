@@ -11,6 +11,8 @@
 //
 //   nv-pipeline new "<name>" --idea "<seed>" [--ref <store link|repo|image>]… [--kind app|game|auto] [--mode auto|promote|review] [--dir <path>]
 //                   [--cast <stage>=<agent>[:<model>][*<workers>]]… [--review <stage>=<agent>[:<model>]|none]…
+//                   [--replica]               use the eleven Replica skills inside the stages (docs/PIPELINE.md)
+//   nv-pipeline replica                        the Replica skill pack: where it is, its version, what is missing, which stage uses which skill
 //   nv-pipeline agents [--refresh]             the agent CLIs on this machine and their models
 //   nv-pipeline agents add <name> <argv…>      make another CLI castable (the task is its last argument)
 //   nv-pipeline cast <id> <stage> <agent>[:<model>][*<workers>] [--review <agent>[:<model>]|none]   before that stage starts
@@ -30,6 +32,7 @@ import { homedir } from "node:os";
 import { dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { verifyManifest, writeSheet } from "./nv-graphics.mjs";
+import * as replica from "./nv-replica.mjs";
 
 // Each stage is one role. `role` is who the board shows doing it.
 // split: how several workers share it ("options": each proposes, the proposals are merged;
@@ -80,9 +83,19 @@ export function realSystem(env = process.env) {
         : spawnSync("/bin/sh", ["-c", LOGIN, "sh", ...argv], { encoding: "utf8", timeout });
       return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
     },
+    /** The argv of Python 3.8 or newer, or null: the Replica pack's tools run on it. Looked for once. */
+    python() { return python === undefined ? (python = replica.findPython()) : python; },
+    /** Runs Python in a folder and returns what it printed. */
+    py(args, cwd) {
+      const argv = this.python();
+      if (!argv) return { code: 127, stdout: "", stderr: "Python 3.8 or newer was not found" };
+      const r = spawnSync(argv[0], [...argv.slice(1), ...args], { cwd, encoding: "utf8", windowsHide: true, timeout: 120000, maxBuffer: 32 << 20, env: { ...env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8", PYTHONDONTWRITEBYTECODE: "1" } });
+      return { code: r.status ?? 1, stdout: r.stdout ?? "", stderr: r.stderr ?? (r.error ? String(r.error.message) : "") };
+    },
   };
 }
 const found = {};
+let python;
 
 // ---------------------------------------------------------------- files and locks
 
@@ -367,7 +380,9 @@ function task(sys, app, state, stage, member = { id: "", part: WORKER }) {
     : `You are worker **${member.id}** of ${team.count}, each proposing on its own. Wherever this task names a file under \`pipeline/${stage.id}/\`, add \`-${member.id}\` before its extension (\`ideas.md\` → \`ideas-${member.id}.md\`, \`option-a.png\` → \`option-a-${member.id}.png\`). The conductor merges everyone's options, so make yours distinct and strong rather than safe.`;
   const role = member.part === REVIEWER ? `reviewer of the ${stage.role}'s work` : member.part === LEAD ? `lead ${stage.role}` : stage.role;
   const checks = member.part === REVIEWER ? checksOf(sys, app, stage) : [];
-  return render(`${body}\n\n${read("_rules.md")}`, {
+  // A run with Replica gets, between the stage's own task and the rules, the skills of this stage only.
+  const skills = state.replica ? replica.taskSection(sys, stage, { member, count: team.count, review: member.part === REVIEWER }) : null;
+  return render(`${body}\n\n${skills ? `${skills}\n\n` : ""}${read("_rules.md")}`, {
     name: state.name, id: state.id, idea: state.idea || "(none: propose from what is trending)", kind: state.kind, engine: state.engine ?? "(decided in the brief stage)",
     dir: app.dir, stage: stage.id, role, next: next ? `${next.role} (${next.id})` : "nobody: this is the last stage", minutes: stage.minutes,
     key: keyFile(sys), package: state.package ?? "(set in the brief stage)",
@@ -396,6 +411,8 @@ export function mergeResults(parts) {
   if (parts.length === 1) return parts[0].result;
   const out = { status: "done", summary: parts.map(p => `[${p.id}] ${p.result.summary}`).join(" ").slice(0, 2000) };
   for (const field of ["engine", "package", "title"]) { const hit = parts.find(p => typeof p.result[field] === "string" && p.result[field]); if (hit) out[field] = hit.result[field]; }
+  const said = parts.find(p => p.result.replica && typeof p.result.replica === "object");
+  if (said) out.replica = said.result.replica;
   const options = parts.flatMap(p => (p.result.options ?? []).map(o => ({ ...o, id: `${p.id}-${o.id}` })));
   if (options.length) {
     options.sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
@@ -589,7 +606,8 @@ async function watch(sys, app, stage, terminal, adopted, resultFile) {
 async function runStage(sys, app, stage, generation, first) {
   const set = settings(sys);
   const note = (code, arg, text) => feed(app, { from: stage.id, kind: "note", code, arg: String(arg ?? ""), text });
-  let batch = first;
+  let batch = first, audited = null;
+  const workerResults = team => workersOf(team.count).map(w => ({ id: w.id, result: normalize(readJson(join(app.dir, filesOf(stage, w).result), null)) }));
   for (;;) {
     const done = await Promise.all(batch.map(async b => ({ ...b, result: b.result ? normalize(b.result)
       : await watch(sys, app, stage, b.terminal, b.adopted, join(app.dir, filesOf(stage, b.member).result)) })));
@@ -609,11 +627,21 @@ async function runStage(sys, app, stage, generation, first) {
     else if (step === "work" && team.reviewer) next = { step: "review" };
     else {
       const issues = checksOf(sys, app, stage);
+      if (seen.replica) {
+        // What the stage's skills had to leave behind, checked with the pack's own tools. A defect in
+        // the app itself (a must-have that is not done, an open serious bug) goes to the developer.
+        audited = replica.audit(sys, app.dir, seen, stage, normalize(mergeResults(workerResults(team))));
+        if (audited.defects.length) return { status: "failed", summary: `${audited.defects.length} thing(s) for the developer: ${audited.defects.slice(0, 3).join("; ")}`.slice(0, 2000), defects: audited.defects, replicaSteps: audited.record, replicaVersion: audited.version };
+        issues.push(...audited.issues.map(text => ({ owner: null, text })));
+      }
       if (step === "review") {
         const review = done[0].result;
         if (review.status !== "done") note("review.skip", "", `The reviewer did not finish (${review.summary}); going on without a review.`);
         else if (review.verdict === "fix") issues.push(...(Array.isArray(review.issues) ? review.issues : []).slice(0, 12).map(text => ({ owner: null, by: "review", text: String(text) })));
       }
+      // An upload stage is never run again for a fix round: it may already have uploaded or promoted.
+      // What is wrong is shown to the person, who repairs it and continues (the result that is there is taken).
+      if (issues.length && stage.needsKey && audited) return { status: "blocked", summary: `This stage ran, but its record does not check out: ${issues.slice(0, 4).map(i => i.text).join("; ")}. Look at Play Console for what it did, put it right, then continue.`.slice(0, 2000), replicaSteps: audited.record, replicaVersion: audited.version };
       if (issues.length && round < set.rounds) {
         const owners = issues.every(i => i.owner) ? [...new Set(issues.map(i => i.owner))] : null;
         writeFileSync(join(app.dir, fixesFile(stage)), `# ${stage.role}: fix in round ${round + 1}\n\n${issues.map(i => `- ${i.owner ? `[${i.owner}] ` : ""}${i.text}`).join("\n")}\n`);
@@ -621,14 +649,14 @@ async function runStage(sys, app, stage, generation, first) {
         next = { step: "work", round: round + 1, only: owners };
       } else {
         const hard = issues.filter(i => !i.by);
-        if (hard.length) return { status: "failed", summary: `the automatic checks still fail after ${round} round(s): ${hard.slice(0, 4).map(i => i.text).join("; ")}` };
+        if (hard.length) return { status: "failed", summary: `the automatic checks still fail after ${round} round(s): ${hard.slice(0, 4).map(i => i.text).join("; ")}`, ...(audited ? { replicaSteps: audited.record, replicaVersion: audited.version } : {}) };
         left = issues;
       }
     }
     if (!next) {
       if (step === "review" && !left.length) note("review.pass", "", "The review passed.");
-      const workers = workersOf(team.count).map(w => ({ id: w.id, result: normalize(readJson(join(app.dir, filesOf(stage, w).result), null)) }));
-      const merged = normalize(mergeResults(workers));
+      const merged = normalize(mergeResults(workerResults(team)));
+      if (audited) Object.assign(merged, { replicaSteps: audited.record, replicaVersion: audited.version });
       if (left.length) merged.summary = `${merged.summary} (검토 지적 ${left.length}건이 ${fixesFile(stage)} 에 남았습니다)`.slice(0, 2000);
       else rmSync(join(app.dir, fixesFile(stage)), { force: true });
       return merged;
@@ -730,6 +758,30 @@ export async function advance(sys, id, { until = null } = {}) {
         feed(app, { from: stage.id, to: next?.id ?? null, kind: "handoff", text: seen.stages[stage.id].summary ?? "" });
         continue;
       }
+      // With Replica, nothing is uploaded unless the code is exactly what the tests passed on and
+      // nothing of the reference is left in it. Otherwise the developer and the tester go again.
+      if (seen.replica && stage.id === "internal" && seen.stages.internal.status === "pending") {
+        const pre = replica.preflight(sys, app.dir);
+        if (pre.back.length) {
+          const spent = (seen.loops ?? 0) >= settings(sys).loops, loop = (seen.loops ?? 0) + 1, why = pre.back.join(" ").slice(0, 2000);
+          let obsolete = false;
+          if (!spent) {
+            mkdirSync(join(app.dir, "pipeline", "build"), { recursive: true });
+            writeFileSync(join(app.dir, fixesFile(stageOf("build"))), `# Developer: before the upload (loop ${loop})\n\nThe app may not be uploaded as it is. Repair this, then the tester checks the new build:\n\n${pre.back.map(l => `- ${l}`).join("\n")}\n`);
+          }
+          change(app, s => {
+            if ((s.generation ?? 0) !== (seen.generation ?? 0) || s.stopRequested) { obsolete = true; return; }
+            if (spent) { Object.assign(s.stages.internal, { status: "failed", error: why, summary: why }); s.status = "failed"; return; }
+            s.loops = loop; s.stage = "build";
+            s.stages.build = { status: "pending", tries: 0 };
+            s.stages.test = { status: "pending", tries: 0, summary: s.stages.test?.summary };
+          }, spent ? `internal: not uploaded (${why.slice(0, 200)})` : `internal: sent back to build before the upload (loop ${loop})`);
+          if (obsolete) { change(app, s => { if (s.stopRequested) s.status = "stopped"; }); break; }
+          feed(app, spent ? { from: "internal", kind: "fail", text: why } : { from: "internal", to: "build", kind: "handoff", code: "loop.preflight", arg: String(pre.back.length), text: `Not uploaded: ${pre.back.length} thing(s) to repair first (loop ${loop}).` });
+          if (spent) break;
+          continue;
+        }
+      }
       // Checking that the stage may run and starting it are ONE step under the state lock: the mode,
       // an approval or a stop is read at the moment the agent is started, and the terminal is on
       // record before the lock is released, so a stop that comes next ends it.
@@ -740,6 +792,9 @@ export async function advance(sys, id, { until = null } = {}) {
         if (STAGES.find(x => s.stages[x.id].status !== "done")?.id !== stage.id) { go = { again: true }; return; }
         if (stage.needsKey && !existsSync(keyFile(sys))) { go = { gate: "key" }; return; }
         if (stage.gate === "approve" && s.mode !== "auto" && !s.approved?.[stage.id]) { go = { gate: "approve" }; return; }
+        // A Replica run waits, and says for what, when the skill pack or Python is not on this machine.
+        const lack = s.replica ? replica.doctor(sys).missing[0] : null;
+        if (lack) { r.status = "blocked"; r.terminal = null; r.error = `Replica: ${lack}`; go = { gate: "blocked" }; return; }
         // An agent that was waiting for the person is taken over if it is still there; if it has
         // finished its work meanwhile, that result is used. It is not started again.
         // The same goes for a stage a conductor left "running" when it died: its agent or its result
@@ -757,6 +812,9 @@ export async function advance(sys, id, { until = null } = {}) {
         if (resumed) { go = { batch: resumed }; return; }
         r.tries = (r.tries ?? 0) + 1; r.startedAt = new Date().toISOString();
         r.round = 1; r.members = [];
+        // The design that was chosen (by the person or unattended) settles the project's tokens here.
+        const settled = s.replica && stage.id === "assets" ? replica.settleDesign(app.dir, s) : null;
+        if (settled?.error) { go = { result: { status: "failed", summary: settled.error } }; return; }
         const made = startStep(sys, app, s, stage, castFor(sys, s, stage.id).lead ? "lead" : "work");
         if (made.error) { go = { result: { status: "failed", summary: made.error } }; return; }
         go = { batch: made.batch, fresh: true };
@@ -775,7 +833,10 @@ export async function advance(sys, id, { until = null } = {}) {
         break;
       }
       if (result.status === "blocked") {
-        change(app, s => { Object.assign(s.stages[stage.id], { status: "blocked", error: result.summary, summary: result.summary, endedAt: ended }); });
+        change(app, s => {
+          Object.assign(s.stages[stage.id], { status: "blocked", error: result.summary, summary: result.summary, endedAt: ended });
+          if (result.replicaSteps) s.stages[stage.id].replica = { version: result.replicaVersion ?? null, at: ended, steps: result.replicaSteps };
+        });
         gate({ kind: "blocked", stage: stage.id });
         break;
       }
@@ -794,7 +855,7 @@ export async function advance(sys, id, { until = null } = {}) {
             if ((s.generation ?? 0) !== generation || s.stopRequested) { obsolete = true; return; }
             s.loops = loop; s.stage = "build";
             s.stages.build = { status: "pending", tries: 0 };
-            s.stages.test = { status: "pending", tries: 0, summary: result.summary };
+            s.stages.test = { status: "pending", tries: 0, summary: result.summary, ...(result.replicaSteps ? { replica: { version: result.replicaVersion ?? null, at: ended, steps: result.replicaSteps } } : {}) };
           }, `test: ${defects.length} defect(s) sent back to build (loop ${loop})`);
           if (obsolete) { change(app, s => { if (s.stopRequested) s.status = "stopped"; }); break; }
           feed(app, { from: "test", to: "build", kind: "handoff", code: "loop.build", arg: String(defects.length), text: `${defects.length} defect(s) to fix, then I test again (loop ${loop}).` });
@@ -803,6 +864,7 @@ export async function advance(sys, id, { until = null } = {}) {
         const again = tries <= settings(sys).retries;
         change(app, s => {
           Object.assign(s.stages[stage.id], { status: again ? "pending" : "failed", error: result.summary, summary: result.summary, endedAt: ended });
+          if (result.replicaSteps) s.stages[stage.id].replica = { version: result.replicaVersion ?? null, at: ended, steps: result.replicaSteps };
           if (!again) s.status = "failed";
         }, `${stage.id}: failed${again ? ", trying again" : ""} (${result.summary})`);
         if (again) continue;
@@ -813,6 +875,8 @@ export async function advance(sys, id, { until = null } = {}) {
         change(app, s => { Object.assign(s.stages[stage.id], { status: "failed", error: "the stage offered no options", endedAt: ended }); s.status = "failed"; }, `${stage.id}: failed (no options)`);
         break;
       }
+      // The tests passed on the source as it is now: remember it, so a later change is noticed before the upload.
+      if (now.replica && stage.id === "test") replica.markVerified(app.dir, ended);
       // Whether to ask is decided by the mode as it is when the result is recorded.
       let ask = false, picked = null, obsolete = false;
       change(app, s => {
@@ -821,6 +885,11 @@ export async function advance(sys, id, { until = null } = {}) {
         picked = options && !ask ? options.find(o => o.id === autoPick(options)) : null;
         Object.assign(s.stages[stage.id], { status: ask ? "waiting" : "done", summary: result.summary, endedAt: ended });
         for (const field of ["engine", "package", "title"]) if (typeof result[field] === "string" && result[field]) s[field] = result[field];
+        if (result.replicaSteps) {
+          s.stages[stage.id].replica = { version: result.replicaVersion ?? null, at: ended, steps: result.replicaSteps };
+          const uploaded = stage.id === "internal" ? result.replicaSteps.map(x => x.versionCode).find(Boolean) : null;
+          if (uploaded) s.replicaRelease = { versionCode: uploaded, package: s.package ?? null };
+        }
         if (options) s.options = { ...(s.options ?? {}), [stage.id]: options };
         if (picked) s.choice = { ...(s.choice ?? {}), [stage.id]: picked.id };
       }, `${stage.id}: result recorded`);
@@ -853,7 +922,7 @@ function create(sys, name, flags) {
     if (existsSync(stateFile(dir))) throw new UsageError(`${dir} already has a pipeline`);
     const state = {
       id, tag: shortTag(id, apps.map(a => readJson(stateFile(a.dir), {}).tag).filter(Boolean)), generation: 0, name, idea: flags.idea ?? "", refs: (flags.ref ?? []).map((r, i) => reference(r, dir, i)), kind, mode, engine: null, status: "idle", stage: STAGES[0].id, gate: null,
-      stages: Object.fromEntries(STAGES.map(s => [s.id, { status: "pending", tries: 0 }])), options: {}, choice: {}, approved: {}, cast, loops: 0,
+      stages: Object.fromEntries(STAGES.map(s => [s.id, { status: "pending", tries: 0 }])), options: {}, choice: {}, approved: {}, cast, loops: 0, replica: Boolean(flags.replica),
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), log: [{ at: new Date().toISOString(), text: "created" }],
     };
     writeJson(stateFile(dir), state);
@@ -1028,11 +1097,13 @@ function status(sys, id) {
     }));
     const activity = Object.fromEntries(STAGES.map(s => [s.id, activityOf(state.stages?.[s.id], terminals, conducted)]).filter(([, v]) => v));
     const live = Object.fromEntries(STAGES.flatMap(s => terminalsOf(state.stages?.[s.id]).map(t => [t, terminals?.get(t) ? statusWord(terminals.get(t)) ?? "live" : terminals ? "gone" : "unknown"])));
-    return { ...a, state, feed: readFeed(a.dir), conducted, team, activity, live };
+    // With Replica: every skill step of every stage, its files and what the conductor found.
+    return { ...a, state, feed: readFeed(a.dir), conducted, team, activity, live, ...(state.replica ? { replica: replica.overview(a.dir, state) } : {}) };
   });
   // Who would take each stage now, so the board can show the model at every desk before it starts.
   const cast = Object.fromEntries(STAGES.map(s => [s.id, agentFor(sys, s.id).name]));
-  return { key: keyStatus(sys), root: settings(sys).root, stages: STAGES.map(s => ({ ...s, agent: cast[s.id] })), apps };
+  const pack = replica.bundleOf(sys);
+  return { key: keyStatus(sys), root: settings(sys).root, stages: STAGES.map(s => ({ ...s, agent: cast[s.id] })), apps, replica: { installed: Boolean(pack), version: replica.versionOf(pack)?.short ?? null } };
 }
 
 export function parseArgs(argv) {
@@ -1041,6 +1112,7 @@ export function parseArgs(argv) {
     const a = argv[i];
     if (a === "--json") flags.json = true;
     else if (a === "--refresh") flags.refresh = true;
+    else if (a === "--replica") flags.replica = true;
     else if (a === "--ref") {
       if (i + 1 >= argv.length) throw new UsageError("--ref needs a link or an image file");
       (flags.ref ??= []).push(argv[++i]);
@@ -1073,6 +1145,7 @@ export async function main(sys, { command, args, flags }) {
     case "remove": return remove(sys, need(args, "remove"));
     case "status": return status(sys, args[0]);
     case "stages": return { stages: STAGES };
+    case "replica": return { ...replica.doctor(sys), skills: replica.SKILLS.map(s => s.id), stages: Object.fromEntries(STAGES.map(s => [s.id, (replica.PLAN[s.id] ?? []).filter(x => x.skill).map(x => `${x.skill}${x.part ? ` (${x.part})` : ""}`)])) };
     case "key":
       if (args[0] === "set") { if (!args[1]) throw new UsageError("key set needs the path of the service account JSON"); return { saved: true, ...setKey(sys, resolve(args[1])) }; }
       return keyStatus(sys);
@@ -1086,6 +1159,14 @@ const need = (args, command) => { if (!args[0]) throw new UsageError(`${command}
 function print(command, result, json) {
   if (json) return console.log(JSON.stringify(result));
   if (result.help) return console.log(result.help);
+  if (command === "replica") {
+    console.log(`Replica skill pack: ${result.bundle ?? "not installed"}${result.version ? `  commit ${result.version.short} (${result.version.date}, ${result.version.license})  ${result.version.url}` : ""}`);
+    console.log(`Python: ${result.python ?? "not found"}`);
+    for (const m of result.missing) console.log(`missing: ${m}`);
+    console.log(`\nThe pack's own order: ${result.skills.map(s => s.replace("replica-", "")).join(" → ")}\n\nIn this pipeline:`);
+    for (const [stage, skills] of Object.entries(result.stages)) console.log(`  ${stage.padEnd(9)} ${skills.join(", ") || "(uses the files the skills left; no skill of its own)"}`);
+    return;
+  }
   if (command === "stages") return console.log(result.stages.map(s => `${s.id.padEnd(9)} ${s.role.padEnd(16)} ${String(s.minutes).padStart(3)} min  ${s.about}`).join("\n"));
   if (command === "status") {
     console.log(`Play key: ${result.key.present ? result.key.email : "not set (nv-pipeline key set <file>)"}`);

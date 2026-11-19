@@ -74,6 +74,74 @@ What fails goes back to the worker who owns that file as a fix list. If it still
 
 Change it in `~/.config/herdr-app/pipeline/settings.json`: `"cast": {"test": "claude"}` reassigns a stage, `"agents": {"claude": ["claude", "--model", "opus", "{prompt}"]}` changes how a model is started, `"fallback"` names the stand-in.
 
+## Replica skills inside the stages
+
+A run can use the eleven skills of [The Replica skill](https://github.com/Jakeschincariol/replica-skill) (MIT, Jake Schincariol): the reference app is analysed into a recon map and a feature matrix, real reviews are read for what to improve, and the conductor checks feature parity, leftovers of the reference and the store listing itself before anything is uploaded. It is a choice per run: turn on **Use the Replica skills** on the Auto app form, or pass `--replica` to `nv-pipeline new`. A run made without it, and every run made before this existed, works exactly as described above.
+
+You still only give a folder, an idea and, if you have them, references (a store link, a web page, screenshots). Nobody names a skill or the next step: the conductor does.
+
+### The pack's own order, and the order here
+
+The pack runs its skills one after another:
+
+```
+recon → architect → design → build → backend → test → diff → entrepreneur → brand → launch → deploy
+```
+
+In this pipeline they are parts of the nine stages. Two things move earlier on purpose: the reviews are read **before** the ideas and the brief, so what users complain about shapes the first version instead of arriving after it is built; and the brand direction (names to avoid, a palette of our own) is set with the design, so the artist and the developer never work in the reference's colours.
+
+| Stage | Skills (the part of each that this stage does) | Files in `replica/` |
+|---|---|---|
+| research | `replica-recon`; `replica-entrepreneur` (early: collect and rank reviews, draft angles) | `recon.md`, `features.csv`, `reviews.csv`, `feedback.md`, `fixes.md`, `sources.md` |
+| brief | `replica-architect` (the engine table above instead of the pack's web stack; fixes the first version in the matrix) | `architecture.md`, `features.csv` |
+| design | `replica-design` (tokens per direction); `replica-brand` (early: name candidates, palette family, voice, what to avoid) | `design/candidates/<option>/tokens.json`, `design/components.md`, `brand.md`, `brand.json` |
+| assets | no skill: uses the chosen direction's tokens and the brand | `design/tokens.json` (settled by the conductor from the chosen option) |
+| build | `replica-build`; `replica-backend` (only when the architecture has a server side) | `features.csv`, `build-log.md`, `backend.md` |
+| test | `replica-test` (on the device, with adb); `replica-diff` (parity against the first version) | `test-plan.md`, `bugs.md`, `parity.md` |
+| store | `replica-entrepreneur` (final: the one angle); `replica-brand` (final: name checks, logo brief, the sweep); `replica-launch` | `fixes.md`, `brand.md`, `brand.json`, `launch/listing.json`, `launch/pricing.md`, `launch/launch-plan.md`, `launch/landing.md` |
+| internal | `replica-deploy` (preflight and the internal track) | `deploy.md` |
+| release | `replica-deploy` (the promotion and its result) | `deploy.md` |
+
+`replica/` holds what the skills write (analysis, plans, the matrix, reports). `pipeline/` stays this pipeline's own: tasks, results, reviews, the feed and the state. Both are in the app's project folder, not in this pack.
+
+### What each agent is told
+
+Each agent's task file gets one extra section with only the skills of its stage: the skill file to read (its path in the installed pack), the part to do, the files handed to it, the files to write, the tool to run, and when it counts as done. The other skills are not put in front of it. The same section says where the skill files do not apply: this task wins over a skill file, the conductor starts the next step (a skill's "Next: /replica-…" is ignored), nobody answers questions, and the stack is the project's engine (Flutter, Godot, Unity) with adb and fastlane, not the Next.js, Expo, Stripe and Vercel of the pack's examples. The task file is what carries the skill to any agent CLI; a slash command is never assumed to exist.
+
+With several workers on a stage, one of them (`w1`) writes the shared files of `replica/` and the others are told to leave them alone; design candidates are separate per worker (`design/candidates/w2-a/…`), and the conductor copies the tokens of the option that is chosen, by you or unattended, to `design/tokens.json` when the artist starts.
+
+### What the conductor checks itself
+
+After a stage's agents finish, the conductor checks what the skills had to leave, with the pack's own Python tools where there is one. A file that merely exists is not enough:
+
+- `features.csv` has the columns `feature,area,priority,original,clone,notes` and only allowed values, with a reason for every `skip`; `reviews.csv` has `source,url,date,rating,text` and every row has its link and its text. `reviews.py` ranks reviews, it does not collect them: the number of reviews really collected is recorded, and zero is an honest answer when no source could be reached (`sources.md` lists what was opened, when, and what was not reached).
+- design: `contrast.py` on the tokens of every option. test: `parity.py` (every must-have of the first version done) and no open S1 or S2 bug in `bugs.md`. store: `sweep.py` (nothing of the reference in the project) and `listing.py`. internal and release: the version code, which must be the same one in both.
+- What fails goes back to the same stage for another round, like a failed image check. A must-have that is not done or an open serious bug is a defect in the app: it goes to the developer, and the tester checks again. A check that still fails after the last round fails the stage with the reason.
+- A part can be reported as not needed only where the plan allows it (`replica-backend` for an app with no server side), with the reason; that is recorded and shown. Anything else reported as skipped is refused.
+- Parity is judged against the first version: rows left out on purpose (`skip`) and what was changed on purpose are not gaps, and the look is meant to differ.
+
+Per stage, the state file keeps the pack's version, each skill's outcome and each check's result (`stages.<id>.replica`), and the board shows them on the desk.
+
+### Code that changes after the tests
+
+When the tests pass, the conductor records the project's source exactly as it is (`pipeline/replica-verified.json`). Before the internal stage starts it compares: if any source file changed since (the marketer renamed a string while settling the brand, say), or the sweep finds the reference in the code, nothing is uploaded. The developer gets the list, and build and test run again, within the usual loop limit. Notes, the listing files and build output do not count as source.
+
+An upload stage is never started again to repair its record: if the internal or release stage ran but its check fails (no version code, or a different one than was tested), the pipeline stops for you with what is wrong. After you put it right, continuing takes the result that is there.
+
+### What it needs, and where it comes from
+
+- **Python 3.8 or newer** (`python3`, `python` or `py -3`). The tools use the standard library only.
+- The pack is a copy in this repository, `app/pipeline/replica/`, of commit `77c9436` of the source, unmodified, with its MIT license; `app/pipeline/replica/UPSTREAM.md` records the source, the commit and how to move to a newer one. The installers copy it to `~/.config/herdr-app/pipeline/replica/` as one folder, so the paths between skills hold, and register the eleven skills in `~/.claude/skills` and `~/.agents/skills` where those exist (a skill folder of the same name that is your own is left alone). **Update** in the + menu installs the copy of the version you pull; nothing is fetched from the source's main branch.
+- `nv-pipeline replica` shows where the pack is, its version, the Python it found and what is missing. When the pack or Python is missing, a run with Replica waits before its first stage and says so on the board; press **Continue** once it is there.
+
+### Limits
+
+- What is tested on every change: the whole handover with stand-in agents and the pack's real Python tools (`app/tests/replica.test.mjs`). Not yet run: a full run with real models, a test on a real device, and a real store upload with Replica on. Expect the first real runs to show where a task needs clearer wording.
+- If a stage fails on a Replica check, the desk shows which check and why. Fix the file or press **Run again** for that stage; a run that stopped continues from the stage it was at, and finished stages are not redone.
+- Supported projects are the pipeline's own: Flutter apps, Godot and Unity games, released to Google Play. A web project, the App Store, payments and domains are in the skills but not in this pipeline: the skills' steps for them are written as not applicable.
+- Trademark and store-name checks are listed for you to run; an agent marks a check as run only when it ran it.
+- The layout comparison (`imgdiff.py`) is used only when same-state screenshots of both apps exist, which an unattended run usually does not have.
+
 ## The board
 
 - **Office:** every teammate is a pixel character at a desk. The one working bobs at a glowing screen with its latest note in a speech bubble; a finished one passes an envelope to the next desk; one that needs you waves an exclamation mark; the rest doze. **Click a desk to open that agent's screen** over the board (and its details below); every worker, lead and reviewer of the stage has its own Show and Open-as-tab buttons.
@@ -118,8 +186,9 @@ An app that has never been uploaded must exist in Play Console first; the releas
 
 ```sh
 nv-pipeline new "Cat Cafe" --idea "idle cat cafe game" --dir ~/projects/cat-cafe --mode promote \
-            --cast build=claude:opus --cast design=codex*3 --review build=codex
+            --cast build=claude:opus --cast design=codex*3 --review build=codex [--replica]
 nv-pipeline run cat-cafe [--until build]
+nv-pipeline replica            # the Replica pack: where it is, its version, Python, which stage uses which skill
 nv-pipeline status | pick <id> <option> | approve <id> | mode <id> auto|promote|review
 nv-pipeline agents [--refresh] | cast <id> <stage> <agent>[:<model>][*<workers>] [--review <agent>|none]
 nv-pipeline say <id> "make it cuter" | retry <id> [stage] | stop <id> | remove <id>

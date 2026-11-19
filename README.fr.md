@@ -33,6 +33,7 @@ Un pack d'espace de travail pour [Herdr](https://herdr.dev), l'application de bu
 - Choisissez ce qu'il vous demande : **sans surveillance**, **demander avant la production** (par défaut) ou **demander à chaque choix**. Les idées et les designs apparaissent en cartes à cliquer.
 - Les applications sont faites avec Flutter ; les jeux avec Godot ou Unity + URP selon le genre. Les versions passent par la piste de test interne de Play, puis la production.
 - Les références sont étudiées, jamais copiées : le genre et la boucle sont repris, le nom, les images et les textes sont nouveaux.
+- En option : **les skills Replica** (`--replica`) font travailler dans les étapes les onze skills de [The Replica skill](https://github.com/Jakeschincariol/replica-skill) : analyse de l’application de référence et matrice de fonctionnalités, lecture de vrais avis avant le brief, puis vérification par le chef d’orchestre de la parité, des restes de la référence et de la fiche avant tout envoi. Python 3.8+ requis. Le pack est inclus à un commit fixe (MIT) ; sans l’option, rien ne change.
 
 Détails : [Pipeline d'applications](docs/PIPELINE.md).
 
